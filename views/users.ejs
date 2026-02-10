@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCIM Users</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background-color: #f8f9fa; }
+        .container { max-width: 960px; margin: 2em auto; padding: 2em; background-color: #fff; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.05); }
+        table { border-collapse: collapse; width: 100%; margin-top: 2em; }
+        th, td { border: 1px solid #dee2e6; padding: 12px; text-align: left; vertical-align: top; }
+        th { background-color: #f1f3f5; font-weight: 600; }
+        h1 { border-bottom: 1px solid #dee2e6; padding-bottom: 10px; font-weight: 600; color: #343a40; }
+        .no-users { text-align: center; color: #6c757d; padding: 2em; }
+        .code { font-family: "SF Mono", "Fira Code", "Consolas", monospace; background-color: #e9ecef; padding: 2px 5px; border-radius: 4px; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>SCIM Server User List</h1>
+        <p>Found <strong><%= users.length %></strong> user(s).</p>
+        <p>
+            You can create a new user by sending a <code class="code">POST</code> request to <code class="code">/scim/v2/Users</code>.
+        </p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Username</th>
+                    <th>Full Name</th>
+                    <th>Email</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% if (users.length > 0) { %>
+                    <% users.forEach(function(user) { %>
+                        <tr>
+                            <td><code class="code"><%= user.id %></code></td>
+                            <td><%= user.userName %></td>
+                            <td><%= (user.name && user.name.formatted) ? user.name.formatted : (user.name && user.name.givenName ? `${user.name.givenName} ${user.name.familyName || ''}`.trim() : 'N/A') %></td>
+                            <td><%= user.emails && user.emails[0] ? user.emails[0].value : 'N/A' %></td>
+                            <td><%= user.active ? 'Active' : 'Inactive' %></td>
+                        </tr>
+                    <% }); %>
+                <% } else { %>
+                    <tr>
+                        <td colspan="5" class="no-users">No users found. Try creating one via the API.</td>
+                    </tr>
+                <% } %>
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

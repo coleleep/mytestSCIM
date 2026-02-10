@@ -1,0 +1,23 @@
+{
+  "name": "mytestscim",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "A simple SCIM 2.0 server with a web UI and SQLite database.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "scim",
+    "nodejs",
+    "sqlite"
+  ],
+  "author": "Nicole Pendill",
+  "license": "ISC",
+  "dependencies": {
+    "ejs": "^3.1.10",
+    "express": "^5.2.1",
+    "pg": "^8.18.0",
+    "uuid": "^13.0.0"
+  }
+}
