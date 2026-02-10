@@ -41,8 +41,9 @@ const PORT = process.env.PORT || 3000;
 
 // --- CORRECTED GLOBAL MIDDLEWARE SETUP ---
 // These will run on EVERY request that comes into the app.
-app.use(morgan('dev'));       // 1. Log a one-line summary of the request
-app.use(express.json());      // 2. THIS IS THE FIX: Parse JSON bodies for all routes
+app.use(morgan('dev'));  // 1. Log a one-line summary of the request
+app.use(express.json({ type: ['application/json', 'application/scim+json'] }));
+
 // ------------------------------------
 
 const detailedLogger = (req, res, next) => {
