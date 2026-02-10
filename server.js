@@ -1,11 +1,11 @@
-// server.js (with Detailed Request/Response Logging)
+// server.js (Final version with correct middleware order)
 
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import pg from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import morgan from 'morgan'; // For one-line summaries
+import morgan from 'morgan';
 
 // --- Setup for ES Modules ---
 const __filename = fileURLToPath(import.meta.url);
@@ -29,7 +29,7 @@ pool.query('SELECT NOW()', (err, res) => {
     }
 });
 
-// --- SCIM Schema and Discovery Objects ---
+// --- SCIM Schema and Discovery Objects (No Changes) ---
 const USER_SCHEMA = { "id": "urn:ietf:params:scim:schemas:core:2.0:User", "name": "User", "description": "User Account", "attributes": [ { "name": "userName", "type": "string", "multiValued": false, "description": "Unique identifier for the User.", "required": true, "caseExact": false, "mutability": "readWrite", "returned": "default", "uniqueness": "server" }, { "name": "name", "type": "complex", "multiValued": false, "description": "The components of the user's real name.", "required": false, "subAttributes": [ { "name": "formatted", "type": "string", "multiValued": false, "description": "The full name, including all middle names, titles, and suffixes.", "required": false, "mutability": "readWrite", "returned": "default" }, { "name": "familyName", "type": "string", "multiValued": false, "description": "The family name of the User.", "required": false, "mutability": "readWrite", "returned": "default" }, { "name": "givenName", "type": "string", "multiValued": false, "description": "The given name of the User.", "required": false, "mutability": "readWrite", "returned": "default" } ]}, { "name": "displayName", "type": "string", "multiValued": false, "description": "The name of the User, suitable for display to end-users.", "required": false, "mutability": "readWrite", "returned": "default" }, { "name": "emails", "type": "complex", "multiValued": true, "description": "Email addresses for the user.", "required": false, "subAttributes": [ { "name": "value", "type": "string", "multiValued": false, "description": "Email address for the user.", "required": false, "mutability": "readWrite", "returned": "default" }, { "name": "type", "type": "string", "multiValued": false, "description": "A label indicating the attribute's function.", "required": false, "canonicalValues": ["work", "home", "other"], "mutability": "readWrite", "returned": "default" }, { "name": "primary", "type": "boolean", "multiValued": false, "description": "A Boolean value indicating the 'primary' or preferred attribute value for this attribute.", "required": false, "mutability": "readWrite", "returned": "default" } ]}, { "name": "active", "type": "boolean", "multiValued": false, "description": "A Boolean value indicating the user's administrative status.", "required": false, "mutability": "readWrite", "returned": "default" } ], "meta": { "resourceType": "Schema", "location": "/scim/v2/Schemas/urn:ietf:params:scim:schemas:core:2.0:User" } };
 const GROUP_SCHEMA = { "id": "urn:ietf:params:scim:schemas:core:2.0:Group", "name": "Group", "description": "Group", "attributes": [ { "name": "displayName", "type": "string", "multiValued": false, "description": "A human-readable name for the Group.", "required": true, "mutability": "readWrite", "returned": "default" }, { "name": "members", "type": "complex", "multiValued": true, "description": "A list of members of the Group.", "required": false, "mutability": "readWrite", "returned": "default", "subAttributes": [ { "name": "value", "type": "string", "multiValued": false, "description": "Identifier of the member of this Group.", "required": false, "mutability": "immutable", "returned": "default" }, { "name": "$ref", "type": "reference", "multiValued": false, "description": "The URI of the corresponding 'User' resource.", "required": false, "mutability": "immutable", "returned": "default" }, { "name": "display", "type": "string", "multiValued": false, "description": "A human-readable name for the member.", "required": false, "mutability": "immutable", "returned": "default" } ]} ], "meta": { "resourceType": "Schema", "location": "/scim/v2/Schemas/urn:ietf:params:scim:schemas:core:2.0:Group" }};
 const SCHEMAS = [USER_SCHEMA, GROUP_SCHEMA];
@@ -39,23 +39,19 @@ const USER_RESOURCE_TYPE = { "schemas": ["urn:ietf:params:scim:schemas:core:2.0:
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware for non-SCIM routes
-app.set('view engine', 'ejs');
-app.set('views', path.join(__dirname, 'views'));
-app.use(morgan('dev')); // Use morgan for all requests
+// --- CORRECTED GLOBAL MIDDLEWARE SETUP ---
+// These will run on EVERY request that comes into the app.
+app.use(morgan('dev'));       // 1. Log a one-line summary of the request
+app.use(express.json());      // 2. THIS IS THE FIX: Parse JSON bodies for all routes
+// ------------------------------------
 
-// --- Detailed Request/Response Logging Middleware ---
 const detailedLogger = (req, res, next) => {
   console.log('--- New SCIM Request ---');
   console.log(`--> ${req.method} ${req.originalUrl}`);
   console.log('Request Headers:', JSON.stringify(req.headers, null, 2));
-
-  // Log request body if it exists
   if (req.body && Object.keys(req.body).length > 0) {
     console.log('Request Body:', JSON.stringify(req.body, null, 2));
   }
-  
-  // Intercept the response to log it before it's sent
   const originalJson = res.json;
   res.json = function(body) {
     console.log(`<-- ${res.statusCode} ${req.method} ${req.originalUrl}`);
@@ -63,23 +59,18 @@ const detailedLogger = (req, res, next) => {
     console.log('--- End SCIM Request ---');
     return originalJson.call(this, body);
   };
-
   const originalSend = res.send;
   res.send = function(body) {
-      if(res.statusCode !== 204) { // Don't log body for 204 No Content
+      if(res.statusCode !== 204) {
         console.log(`<-- ${res.statusCode} ${req.method} ${req.originalUrl}`);
         console.log('Response Body:', body);
-      } else {
-        console.log(`<-- 204 No Content`);
-      }
+      } else { console.log(`<-- 204 No Content`); }
       console.log('--- End SCIM Request ---');
       return originalSend.call(this, body);
   };
-  
   next();
 };
 
-// Authentication Middleware
 const scimAuth = (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || authHeader !== `Bearer ${API_TOKEN}`) {
@@ -88,19 +79,21 @@ const scimAuth = (req, res, next) => {
     next();
 };
 
-// --- Router Setup ---
+// --- ROUTER SETUP ---
 const scimRouter = express.Router();
-scimRouter.use(express.json());   // 1. Parse JSON body
-scimRouter.use(detailedLogger);   // 2. NEW: Use our detailed logger
-scimRouter.use(scimAuth);         // 3. Authenticate
+scimRouter.use(detailedLogger);   // 1. Use our detailed logger for SCIM routes
+scimRouter.use(scimAuth);         // 2. Authenticate SCIM routes
 app.use('/scim/v2', scimRouter);
 
-// === SCIM API Endpoints (Attached to scimRouter) 
+// Set up UI routes on the main app
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+
+// === SCIM API Endpoints (Attached to scimRouter) ===
+// ... (All your scimRouter.get, .post, .put, etc. routes are unchanged) ...
 scimRouter.get('/ServiceProviderConfig', (req, res) => res.json(SERVICE_PROVIDER_CONFIG));
 scimRouter.get('/ResourceTypes', (req, res) => res.json({ Resources: [USER_RESOURCE_TYPE] }));
 scimRouter.get('/Schemas', (req, res) => res.json({ Resources: SCHEMAS }));
-
-// Get User(s) with Filtering
 scimRouter.get('/Users', async (req, res) => {
     try {
         let sql = `SELECT scim_data FROM users`;
@@ -117,8 +110,6 @@ scimRouter.get('/Users', async (req, res) => {
         res.json({ schemas: ["urn:ietf:params:scim:api:messages:2.0:ListResponse"], totalResults: resources.length, Resources: resources });
     } catch (err) { res.status(500).json({ detail: "Database query error" }); }
 });
-
-// Get a single user by ID
 scimRouter.get('/Users/:id', async (req, res) => {
     try {
         const { rows } = await pool.query(`SELECT scim_data FROM users WHERE id = $1`, [req.params.id]);
@@ -126,8 +117,6 @@ scimRouter.get('/Users/:id', async (req, res) => {
         res.status(200).json(rows[0].scim_data);
     } catch (err) { res.status(500).json({ detail: "Database query error" }); }
 });
-
-// Create User
 scimRouter.post('/Users', async (req, res) => {
     const scimUser = req.body; 
     if (!scimUser || !scimUser.userName) { return res.status(400).json({ detail: 'userName is required' }); }
@@ -142,8 +131,6 @@ scimRouter.post('/Users', async (req, res) => {
         res.status(500).json({ detail: "Database insert error" });
     }
 });
-
-// Update User (PUT)
 scimRouter.put('/Users/:id', async (req, res) => {
     const userId = req.params.id;
     const scimUser = req.body;
@@ -163,8 +150,6 @@ scimRouter.put('/Users/:id', async (req, res) => {
         res.status(500).json({ detail: "Database error on update" });
     }
 });
-
-// Patch User
 scimRouter.patch('/Users/:id', async (req, res) => {
     const userId = req.params.id;
     const patchOps = req.body.Operations;
@@ -184,8 +169,6 @@ scimRouter.patch('/Users/:id', async (req, res) => {
     }
     res.status(204).send();
 });
-
-// Delete User
 scimRouter.delete('/Users/:id', async (req, res) => {
     try {
         const result = await pool.query(`DELETE FROM users WHERE id = $1`, [req.params.id]);
@@ -209,4 +192,3 @@ app.listen(PORT, () => {
     console.log(`Server is running and listening on port ${PORT}`);
     console.log(`SCIM Bearer Token: ${API_TOKEN}`);
 });
-
