@@ -1,33 +1,28 @@
-// server.js (UPDATED for Postgres and Render)
+// server.js (with Detailed Request/Response Logging)
 
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import pg from 'pg'; // UPDATED: Import pg
+import pg from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import morgan from 'morgan'; // For one-line summaries
 
 // --- Setup for ES Modules ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const API_TOKEN = process.env.API_TOKEN || "secret-token-for-okta"; // Use environment variable
+const API_TOKEN = process.env.API_TOKEN || "secret-token-for-okta";
 
-// --- UPDATED: Database Setup for Postgres ---
+// --- Database Setup ---
 const { Pool } = pg;
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL, // This will be provided by Render
-  ssl: {
-    rejectUnauthorized: false // Required for connecting to Neon
-  }
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
 });
-
-// Test the database connection
 pool.query('SELECT NOW()', (err, res) => {
-    if (err) {
-        console.error("Error connecting to the database:", err.message);
-    } else {
+    if (err) { console.error("Error connecting to the database:", err.message); }
+    else {
         console.log("Connected to Postgres database successfully.");
-        // Create table if it doesn't exist
         pool.query(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, userName TEXT UNIQUE, active BOOLEAN, scim_data JSONB)`, (err, res) => {
             if (err) { console.error("Error creating table:", err) }
         });
@@ -42,12 +37,49 @@ const SERVICE_PROVIDER_CONFIG = { "schemas": ["urn:ietf:params:scim:schemas:core
 const USER_RESOURCE_TYPE = { "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ResourceType"], "id": "User", "name": "User", "endpoint": "/scim/v2/Users", "description": "User Account", "schema": "urn:ietf:params:scim:schemas:core:2.0:User", "meta": { "location": "/scim/v2/ResourceTypes/User", "resourceType": "ResourceType" } };
 
 const app = express();
-const PORT = process.env.PORT || 3000; // Render provides the PORT env var
+const PORT = process.env.PORT || 3000;
 
-// --- Middleware & View Engine (No Changes) ---
-app.use(express.json());
+// Middleware for non-SCIM routes
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+app.use(morgan('dev')); // Use morgan for all requests
+
+// --- NEW: Detailed Request/Response Logging Middleware ---
+const detailedLogger = (req, res, next) => {
+  console.log('--- New SCIM Request ---');
+  console.log(`--> ${req.method} ${req.originalUrl}`);
+  console.log('Request Headers:', JSON.stringify(req.headers, null, 2));
+
+  // Log request body if it exists
+  if (req.body && Object.keys(req.body).length > 0) {
+    console.log('Request Body:', JSON.stringify(req.body, null, 2));
+  }
+  
+  // Intercept the response to log it before it's sent
+  const originalJson = res.json;
+  res.json = function(body) {
+    console.log(`<-- ${res.statusCode} ${req.method} ${req.originalUrl}`);
+    console.log('Response Body:', JSON.stringify(body, null, 2));
+    console.log('--- End SCIM Request ---');
+    return originalJson.call(this, body);
+  };
+
+  const originalSend = res.send;
+  res.send = function(body) {
+      if(res.statusCode !== 204) { // Don't log body for 204 No Content
+        console.log(`<-- ${res.statusCode} ${req.method} ${req.originalUrl}`);
+        console.log('Response Body:', body);
+      } else {
+        console.log(`<-- 204 No Content`);
+      }
+      console.log('--- End SCIM Request ---');
+      return originalSend.call(this, body);
+  };
+  
+  next();
+};
+
+// Authentication Middleware
 const scimAuth = (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || authHeader !== `Bearer ${API_TOKEN}`) {
@@ -55,13 +87,17 @@ const scimAuth = (req, res, next) => {
     }
     next();
 };
+
+// --- Router Setup ---
 const scimRouter = express.Router();
-scimRouter.use(scimAuth);
+scimRouter.use(express.json());   // 1. Parse JSON body
+scimRouter.use(detailedLogger);   // 2. NEW: Use our detailed logger
+scimRouter.use(scimAuth);         // 3. Authenticate
 app.use('/scim/v2', scimRouter);
 
-// === SCIM API Endpoints (UPDATED for Postgres) ===
-
-// Discovery Endpoints (No change)
+// === SCIM API Endpoints (Attached to scimRouter) ===
+// ... (All your scimRouter.get, .post, .put, etc. routes are unchanged) ...
+// Discovery Endpoints
 scimRouter.get('/ServiceProviderConfig', (req, res) => res.json(SERVICE_PROVIDER_CONFIG));
 scimRouter.get('/ResourceTypes', (req, res) => res.json({ Resources: [USER_RESOURCE_TYPE] }));
 scimRouter.get('/Schemas', (req, res) => res.json({ Resources: SCHEMAS }));
@@ -74,7 +110,7 @@ scimRouter.get('/Users', async (req, res) => {
         if (req.query.filter) {
             const [attribute, operator, value] = req.query.filter.split(' ');
             if (attribute.toLowerCase() === 'username' && operator.toLowerCase() === 'eq') {
-                sql += ' WHERE userName = $1'; // Use $1 for Postgres
+                sql += ' WHERE userName = $1';
                 params.push(value.replace(/"/g, ''));
             }
         }
@@ -95,8 +131,8 @@ scimRouter.get('/Users/:id', async (req, res) => {
 
 // Create User
 scimRouter.post('/Users', async (req, res) => {
-    const scimUser = req.body;
-    if (!scimUser.userName) { return res.status(400).json({ detail: 'userName is required' }); }
+    const scimUser = req.body; 
+    if (!scimUser || !scimUser.userName) { return res.status(400).json({ detail: 'userName is required' }); }
     const userId = uuidv4();
     const newUser = { id: userId, schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"], userName: scimUser.userName, name: scimUser.name || {}, emails: scimUser.emails || [], active: scimUser.active !== undefined ? scimUser.active : true, meta: { resourceType: "User", created: new Date().toISOString(), lastModified: new Date().toISOString(), location: `/scim/v2/Users/${userId}` } };
     try {
@@ -104,9 +140,7 @@ scimRouter.post('/Users', async (req, res) => {
         await pool.query(sql, [newUser.id, newUser.userName, newUser.active, newUser]);
         res.status(201).json(newUser);
     } catch (err) {
-        if (err.code === '23505') { // Postgres unique violation code
-            return res.status(409).json({ detail: 'userName must be unique.' });
-        }
+        if (err.code === '23505') { return res.status(409).json({ detail: 'userName must be unique.' }); }
         res.status(500).json({ detail: "Database insert error" });
     }
 });
@@ -115,13 +149,21 @@ scimRouter.post('/Users', async (req, res) => {
 scimRouter.put('/Users/:id', async (req, res) => {
     const userId = req.params.id;
     const scimUser = req.body;
-    const updatedUser = { ...scimUser, id: userId, meta: { resourceType: "User", lastModified: new Date().toISOString(), location: `/scim/v2/Users/${userId}` } };
+    let existingUser;
+    try {
+        const { rows } = await pool.query(`SELECT scim_data FROM users WHERE id = $1`, [userId]);
+        if (rows.length === 0) { return res.status(404).json({ detail: "User not found" }); }
+        existingUser = rows[0].scim_data;
+    } catch (err) { return res.status(500).json({ detail: "Database query error on fetch" }); }
+    const updatedUser = { id: userId, schemas: scimUser.schemas || existingUser.schemas, userName: scimUser.userName, name: scimUser.name || {}, emails: scimUser.emails || [], active: scimUser.active !== undefined ? scimUser.active : true, meta: { ...existingUser.meta, lastModified: new Date().toISOString(), location: `/scim/v2/Users/${userId}` } };
     try {
         const sql = `UPDATE users SET userName = $1, active = $2, scim_data = $3 WHERE id = $4`;
-        const result = await pool.query(sql, [updatedUser.userName, updatedUser.active, updatedUser, userId]);
-        if (result.rowCount === 0) { return res.status(404).json({ detail: "User not found" }); }
+        await pool.query(sql, [updatedUser.userName, updatedUser.active, updatedUser, userId]);
         res.status(200).json(updatedUser);
-    } catch (err) { res.status(500).json({ detail: "Database error" }); }
+    } catch (err) {
+        if (err.code === '23505') { return res.status(409).json({ detail: 'userName must be unique.' }); }
+        res.status(500).json({ detail: "Database error on update" });
+    }
 });
 
 // Patch User
@@ -154,7 +196,7 @@ scimRouter.delete('/Users/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ detail: "Database error" }); }
 });
 
-// === Web Interface (UPDATED) ===
+// === Web Interface Endpoints ===
 app.get('/', (req, res) => res.redirect('/ui/users'));
 app.get('/ui/users', async (req, res) => {
     try {
@@ -166,5 +208,7 @@ app.get('/ui/users', async (req, res) => {
 
 // --- Server Start ---
 app.listen(PORT, () => {
-    console.log(`Server is running and listening on http://localhost:${PORT}`);
+    console.log(`Server is running and listening on port ${PORT}`);
+    console.log(`SCIM Bearer Token: ${API_TOKEN}`);
 });
+
