@@ -15,8 +15,10 @@
   "author": "Nicole Pendill",
   "license": "ISC",
   "dependencies": {
+    "@okta/oidc-middleware": "^5.5.0",
     "ejs": "^3.1.10",
     "express": "^5.2.1",
+    "express-session": "^1.19.0",
     "morgan": "^1.10.1",
     "pg": "^8.18.0",
     "uuid": "^13.0.0"

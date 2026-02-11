@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login to SCIM Server</title>
+    <!-- Okta Sign-In Widget CSS -->
+    <link href="https://global.oktacdn.com/okta-signin-widget/7.4.0/css/okta-sign-in.min.css" type="text/css" rel="stylesheet"/>
+    <style>
+        body { font-family: sans-serif; background-color: #f4f4f4; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+    </style>
+</head>
+<body>
+    <!-- render Widget -->
+    <div id="okta-signin-container"></div>
+
+    <script src="https://global.oktacdn.com/okta-signin-widget/7.4.0/js/okta-sign-in.min.js" type="text/javascript"></script>
+
+    <script>
+      var signIn = new OktaSignIn({
+        baseUrl: '<%= oktaOrgUrl %>',
+        clientId: '<%= oktaClientId %>',
+        redirectUri: window.location.origin + '/authorization-code/callback',
+        authParams: {
+          issuer: '<%= oktaOrgUrl %>/oauth2/default',
+          pkce: false // The oidc middleware handles PKCE and token exchange
+        }
+      });
+
+      signIn.renderEl(
+        { el: '#okta-signin-container' },
+        function (res) {
+          if (res.status === 'SUCCESS') {
+            // The OIDC middleware handles the redirect after successful authentication
+          }
+        }
+      );
+    </script>
+</body>
+</html>

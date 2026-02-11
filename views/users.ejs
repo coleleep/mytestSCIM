@@ -16,6 +16,14 @@
     </style>
 </head>
 <body>
+    <div style="background-color: #333; color: white; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center;">
+    <div>
+        Logged in as: <strong><%= user.name %></strong> (<%= user.email %>)
+    </div>
+    <form action="/logout" method="post">
+        <button type="submit" style="background: #555; color: white; border: none; padding: 8px 12px; cursor: pointer;">Logout</button>
+    </form>
+    </div>
     <div class="container">
         <h1>SCIM Server User List</h1>
         <p>Found <strong><%= users.length %></strong> user(s).</p>
