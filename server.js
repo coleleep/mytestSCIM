@@ -5,7 +5,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import morgan from 'morgan';
 import session from 'express-session';
-import { ExpressOIDC } from '@okta/oidc-middleware';
+import OktaOidc from '@okta/oidc-middleware';
+const { ExpressOIDC } = OktaOidc;
 
 // --- Setup for ES Modules ---
 const __filename = fileURLToPath(import.meta.url);
