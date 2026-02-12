@@ -1,4 +1,4 @@
-// server.js (with Pagination for User Import)
+// server.js (with restored routes)
 
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
@@ -70,25 +70,21 @@ const scimRouter = express.Router();
 scimRouter.use(scimAuth);
 app.use('/scim/v2', scimRouter);
 
-
 // === SCIM API Endpoints ===
 
-// Discovery Endpoints (No changes)
+// Discovery Endpoints
 scimRouter.get('/ServiceProviderConfig', (req, res) => res.json(SERVICE_PROVIDER_CONFIG));
 scimRouter.get('/ResourceTypes', (req, res) => res.json({ Resources: [USER_RESOURCE_TYPE] }));
 scimRouter.get('/Schemas', (req, res) => res.json({ Resources: SCHEMAS }));
 
-// UPDATED: GET /Users with Pagination and Filtering
+// GET /Users with Pagination
 scimRouter.get('/Users', async (req, res) => {
     try {
-        // 1. Parse pagination and filter parameters from the query string
         const startIndex = parseInt(req.query.startIndex, 10) || 1;
-        const count = parseInt(req.query.count, 10) || 100; // Default to 100 results per page
+        const count = parseInt(req.query.count, 10) || 100;
         const filter = req.query.filter;
-
         let queryParams = [];
         let filterClause = '';
-
         if (filter) {
             const [attribute, operator, value] = filter.split(' ');
             if (attribute.toLowerCase() === 'username' && operator.toLowerCase() === 'eq') {
@@ -96,36 +92,19 @@ scimRouter.get('/Users', async (req, res) => {
                 queryParams.push(value.replace(/"/g, ''));
             }
         }
-        
-        // 2. Perform two queries in parallel: one for the total count, one for the page of results
         const totalResultPromise = pool.query(`SELECT COUNT(*) AS total FROM users ${filterClause}`, queryParams);
-        
-        const usersPromise = pool.query(
-            `SELECT scim_data FROM users ${filterClause} ORDER BY userName LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`,
-            [...queryParams, count, startIndex - 1] // OFFSET is 0-based, so we subtract 1
-        );
-
+        const usersPromise = pool.query(`SELECT scim_data FROM users ${filterClause} ORDER BY userName LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`, [...queryParams, count, startIndex - 1]);
         const [totalResult, usersResult] = await Promise.all([totalResultPromise, usersPromise]);
-
         const totalResults = parseInt(totalResult.rows[0].total, 10);
         const resources = usersResult.rows.map(row => row.scim_data);
-
-        // 3. Construct the SCIM ListResponse
-        res.json({
-            schemas: ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
-            totalResults: totalResults,
-            itemsPerPage: resources.length,
-            startIndex: startIndex,
-            Resources: resources
-        });
-
+        res.json({ schemas: ["urn:ietf:params:scim:api:messages:2.0:ListResponse"], totalResults, itemsPerPage: resources.length, startIndex, Resources: resources });
     } catch (err) {
         console.error("Error in GET /Users:", err);
         res.status(500).json({ detail: "Database query error" });
     }
 });
 
-// ... (All other endpoints: GET /Users/:id, POST, PUT, PATCH, DELETE are unchanged) ...
+// ** RE-ADDED: The route for getting a single user by their ID **
 scimRouter.get('/Users/:id', async (req, res) => {
     try {
         const { rows } = await pool.query(`SELECT scim_data FROM users WHERE id = $1`, [req.params.id]);
@@ -133,6 +112,8 @@ scimRouter.get('/Users/:id', async (req, res) => {
         res.status(200).json(rows[0].scim_data);
     } catch (err) { res.status(500).json({ detail: "Database query error" }); }
 });
+
+// ** RE-ADDED: The route for creating a new user **
 scimRouter.post('/Users', async (req, res) => {
     const scimUser = req.body; 
     if (!scimUser || !scimUser.userName) { return res.status(400).json({ detail: 'userName is required' }); }
@@ -147,6 +128,8 @@ scimRouter.post('/Users', async (req, res) => {
         res.status(500).json({ detail: "Database insert error" });
     }
 });
+
+// ** RE-ADDED: The route for fully updating a user **
 scimRouter.put('/Users/:id', async (req, res) => {
     const userId = req.params.id;
     const scimUser = req.body;
@@ -166,6 +149,8 @@ scimRouter.put('/Users/:id', async (req, res) => {
         res.status(500).json({ detail: "Database error on update" });
     }
 });
+
+// ** RE-ADDED: The route for partially updating a user **
 scimRouter.patch('/Users/:id', async (req, res) => {
     const userId = req.params.id;
     const patchOps = req.body.Operations;
@@ -185,6 +170,8 @@ scimRouter.patch('/Users/:id', async (req, res) => {
     }
     res.status(204).send();
 });
+
+// ** RE-ADDED: The route for deleting a user **
 scimRouter.delete('/Users/:id', async (req, res) => {
     try {
         const result = await pool.query(`DELETE FROM users WHERE id = $1`, [req.params.id]);
@@ -192,6 +179,8 @@ scimRouter.delete('/Users/:id', async (req, res) => {
         res.status(204).send();
     } catch (err) { res.status(500).json({ detail: "Database error" }); }
 });
+
+
 // === Web Interface Endpoints (No changes) ===
 app.get('/', (req, res) => {
   if (req.userContext) { res.redirect('/ui/users'); }
