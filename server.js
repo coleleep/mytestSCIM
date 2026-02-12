@@ -1,3 +1,5 @@
+// server.js (with Pagination for User Import)
+
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import pg from 'pg';
@@ -8,11 +10,10 @@ import session from 'express-session';
 import OktaOidc from '@okta/oidc-middleware';
 const { ExpressOIDC } = OktaOidc;
 
-// --- Setup for ES Modules ---
+// --- Setup, Configuration, and Database (No changes) ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// --- Okta and App Configuration ---
 const OKTA_ORG_URL = process.env.OKTA_ORG_URL || 'https://YOUR_OKTA_DOMAIN';
 const OKTA_CLIENT_ID = process.env.OKTA_CLIENT_ID || '{YourOktaClientID}';
 const OKTA_CLIENT_SECRET = process.env.OKTA_CLIENT_SECRET || '{YourOktaClientSecret}';
@@ -22,13 +23,11 @@ const API_TOKEN = process.env.API_TOKEN || "secret-token-for-okta";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// --- Database Setup ---
 const { Pool } = pg;
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
-
 pool.query('SELECT NOW()', (err, res) => {
     if (err) { console.error("Error connecting to the database:", err.message); }
     else {
@@ -38,42 +37,28 @@ pool.query('SELECT NOW()', (err, res) => {
         });
     }
 });
-// --- SCIM Objects  ---
+// --- SCIM Objects (No changes) ---
 const USER_SCHEMA = { "id": "urn:ietf:params:scim:schemas:core:2.0:User", "name": "User", "description": "User Account", "attributes": [ { "name": "userName", "type": "string", "multiValued": false, "description": "Unique identifier for the User.", "required": true, "caseExact": false, "mutability": "readWrite", "returned": "default", "uniqueness": "server" }, { "name": "name", "type": "complex", "multiValued": false, "description": "The components of the user's real name.", "required": false, "subAttributes": [ { "name": "formatted", "type": "string", "multiValued": false, "description": "The full name, including all middle names, titles, and suffixes.", "required": false, "mutability": "readWrite", "returned": "default" }, { "name": "familyName", "type": "string", "multiValued": false, "description": "The family name of the User.", "required": false, "mutability": "readWrite", "returned": "default" }, { "name": "givenName", "type": "string", "multiValued": false, "description": "The given name of the User.", "required": false, "mutability": "readWrite", "returned": "default" } ]}, { "name": "displayName", "type": "string", "multiValued": false, "description": "The name of the User, suitable for display to end-users.", "required": false, "mutability": "readWrite", "returned": "default" }, { "name": "emails", "type": "complex", "multiValued": true, "description": "Email addresses for the user.", "required": false, "subAttributes": [ { "name": "value", "type": "string", "multiValued": false, "description": "Email address for the user.", "required": false, "mutability": "readWrite", "returned": "default" }, { "name": "type", "type": "string", "multiValued": false, "description": "A label indicating the attribute's function.", "required": false, "canonicalValues": ["work", "home", "other"], "mutability": "readWrite", "returned": "default" }, { "name": "primary", "type": "boolean", "multiValued": false, "description": "A Boolean value indicating the 'primary' or preferred attribute value for this attribute.", "required": false, "mutability": "readWrite", "returned": "default" } ]}, { "name": "active", "type": "boolean", "multiValued": false, "description": "A Boolean value indicating the user's administrative status.", "required": false, "mutability": "readWrite", "returned": "default" } ], "meta": { "resourceType": "Schema", "location": "/scim/v2/Schemas/urn:ietf:params:scim:schemas:core:2.0:User" } };
 const GROUP_SCHEMA = { "id": "urn:ietf:params:scim:schemas:core:2.0:Group", "name": "Group", "description": "Group", "attributes": [ { "name": "displayName", "type": "string", "multiValued": false, "description": "A human-readable name for the Group.", "required": true, "mutability": "readWrite", "returned": "default" }, { "name": "members", "type": "complex", "multiValued": true, "description": "A list of members of the Group.", "required": false, "mutability": "readWrite", "returned": "default", "subAttributes": [ { "name": "value", "type": "string", "multiValued": false, "description": "Identifier of the member of this Group.", "required": false, "mutability": "immutable", "returned": "default" }, { "name": "$ref", "type": "reference", "multiValued": false, "description": "The URI of the corresponding 'User' resource.", "required": false, "mutability": "immutable", "returned": "default" }, { "name": "display", "type": "string", "multiValued": false, "description": "A human-readable name for the member.", "required": false, "mutability": "immutable", "returned": "default" } ]} ], "meta": { "resourceType": "Schema", "location": "/scim/v2/Schemas/urn:ietf:params:scim:schemas:core:2.0:Group" }};
 const SCHEMAS = [USER_SCHEMA, GROUP_SCHEMA];
 const SERVICE_PROVIDER_CONFIG = { "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"], "documentationUri": "http://example.com/help/scim.html", "patch": { "supported": true }, "bulk": { "supported": false, "maxOperations": 0, "maxPayloadSize": 0 }, "filter": { "supported": true, "maxResults": 100 }, "changePassword": { "supported": false }, "sort": { "supported": false }, "etag": { "supported": false }, "authenticationSchemes": [ { "name": "OAuth Bearer Token", "description": "Authentication scheme using the OAuth Bearer Token standard.", "specUri": "http://www.rfc-editor.org/info/rfc6750", "type": "oauthbearertoken", "primary": true } ], "meta": { "location": "/scim/v2/ServiceProviderConfig", "resourceType": "ServiceProviderConfig" } };
 const USER_RESOURCE_TYPE = { "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ResourceType"], "id": "User", "name": "User", "endpoint": "/scim/v2/Users", "description": "User Account", "schema": "urn:ietf:params:scim:schemas:core:2.0:User", "meta": { "location": "/scim/v2/ResourceTypes/User", "resourceType": "ResourceType" } };
 
-// --- Global Middleware Setup ---
+// --- Middleware Setup (No changes) ---
 app.use(morgan('dev'));
 app.use(express.json({ type: ['application/json', 'application/scim+json'] }));
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
-
-//Session and OIDC Middleware Setup
-app.use(session({
-  secret: APP_SECRET,
-  resave: false,
-  saveUninitialized: true
-}));
-
+app.use(session({ secret: APP_SECRET, resave: false, saveUninitialized: true }));
 const oidc = new ExpressOIDC({
   issuer: `${OKTA_ORG_URL}/oauth2/default`,
   client_id: OKTA_CLIENT_ID,
   client_secret: OKTA_CLIENT_SECRET,
   appBaseUrl: process.env.BASE_URL || `http://localhost:${PORT}`,
   scope: 'openid profile',
-  routes: {
-    login: { path: '/login' }, // The OIDC middleware will attach to this route
-    callback: { path: '/authorization-code/callback' } // This must match the Okta app config
-  }
+  routes: { login: { path: '/login' }, callback: { path: '/authorization-code/callback' } }
 });
-
-// The OIDC router attaches /login, /logout, and /authorization-code/callback routes
 app.use(oidc.router);
-
-// --- SCIM Router Setup ---
 const scimAuth = (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || authHeader !== `Bearer ${API_TOKEN}`) {
@@ -84,25 +69,63 @@ const scimAuth = (req, res, next) => {
 const scimRouter = express.Router();
 scimRouter.use(scimAuth);
 app.use('/scim/v2', scimRouter);
+
+
+// === SCIM API Endpoints ===
+
+// Discovery Endpoints (No changes)
 scimRouter.get('/ServiceProviderConfig', (req, res) => res.json(SERVICE_PROVIDER_CONFIG));
 scimRouter.get('/ResourceTypes', (req, res) => res.json({ Resources: [USER_RESOURCE_TYPE] }));
 scimRouter.get('/Schemas', (req, res) => res.json({ Resources: SCHEMAS }));
+
+// UPDATED: GET /Users with Pagination and Filtering
 scimRouter.get('/Users', async (req, res) => {
     try {
-        let sql = `SELECT scim_data FROM users`;
-        let params = [];
-        if (req.query.filter) {
-            const [attribute, operator, value] = req.query.filter.split(' ');
+        // 1. Parse pagination and filter parameters from the query string
+        const startIndex = parseInt(req.query.startIndex, 10) || 1;
+        const count = parseInt(req.query.count, 10) || 100; // Default to 100 results per page
+        const filter = req.query.filter;
+
+        let queryParams = [];
+        let filterClause = '';
+
+        if (filter) {
+            const [attribute, operator, value] = filter.split(' ');
             if (attribute.toLowerCase() === 'username' && operator.toLowerCase() === 'eq') {
-                sql += ' WHERE userName = $1';
-                params.push(value.replace(/"/g, ''));
+                filterClause = 'WHERE userName = $1';
+                queryParams.push(value.replace(/"/g, ''));
             }
         }
-        const { rows } = await pool.query(sql, params);
-        const resources = rows.map(row => row.scim_data);
-        res.json({ schemas: ["urn:ietf:params:scim:api:messages:2.0:ListResponse"], totalResults: resources.length, Resources: resources });
-    } catch (err) { res.status(500).json({ detail: "Database query error" }); }
+        
+        // 2. Perform two queries in parallel: one for the total count, one for the page of results
+        const totalResultPromise = pool.query(`SELECT COUNT(*) AS total FROM users ${filterClause}`, queryParams);
+        
+        const usersPromise = pool.query(
+            `SELECT scim_data FROM users ${filterClause} ORDER BY userName LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`,
+            [...queryParams, count, startIndex - 1] // OFFSET is 0-based, so we subtract 1
+        );
+
+        const [totalResult, usersResult] = await Promise.all([totalResultPromise, usersPromise]);
+
+        const totalResults = parseInt(totalResult.rows[0].total, 10);
+        const resources = usersResult.rows.map(row => row.scim_data);
+
+        // 3. Construct the SCIM ListResponse
+        res.json({
+            schemas: ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
+            totalResults: totalResults,
+            itemsPerPage: resources.length,
+            startIndex: startIndex,
+            Resources: resources
+        });
+
+    } catch (err) {
+        console.error("Error in GET /Users:", err);
+        res.status(500).json({ detail: "Database query error" });
+    }
 });
+
+// ... (All other endpoints: GET /Users/:id, POST, PUT, PATCH, DELETE are unchanged) ...
 scimRouter.get('/Users/:id', async (req, res) => {
     try {
         const { rows } = await pool.query(`SELECT scim_data FROM users WHERE id = $1`, [req.params.id]);
@@ -169,27 +192,18 @@ scimRouter.delete('/Users/:id', async (req, res) => {
         res.status(204).send();
     } catch (err) { res.status(500).json({ detail: "Database error" }); }
 });
-
-// === Web Interface Endpoints ===
+// === Web Interface Endpoints (No changes) ===
 app.get('/', (req, res) => {
   if (req.userContext) { res.redirect('/ui/users'); }
   else { res.redirect('/login'); }
 });
-
-//Render login page
 app.get('/login', (req, res) => {
-  res.render('login', {
-    oktaOrgUrl: OKTA_ORG_URL,
-    oktaClientId: OKTA_CLIENT_ID
-  });
+  res.render('login', { oktaOrgUrl: OKTA_ORG_URL, oktaClientId: OKTA_CLIENT_ID });
 });
-
-// Protect the /ui/users route
 app.get('/ui/users', oidc.ensureAuthenticated(), async (req, res) => {
     try {
         const { rows } = await pool.query(`SELECT scim_data FROM users`);
         const users = rows.map(row => row.scim_data);
-        // NEW: Pass user info to the template
         res.render('users', { users: users, user: req.userContext.userinfo });
     } catch (err) { res.status(500).send("Error retrieving users."); }
 });
