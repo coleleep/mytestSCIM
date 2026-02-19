@@ -1,4 +1,4 @@
-// server.js (with corrected async startup)
+// server.js (with corrected group displayName rendering)
 
 import express from 'express';
 import pg from 'pg';
@@ -92,15 +92,28 @@ async function startServer() {
             res.render('users', { users: users, user: req.userContext.userinfo });
         } catch (err) { res.status(500).send("Error retrieving users."); }
     });
+
+    // NEW: Corrected /ui/groups route
     app.get('/ui/groups', oidc.ensureAuthenticated(), async (req, res) => {
         try {
             const query = `
-                SELECT g.id, g.displayName, COALESCE(json_agg(json_build_object('value', u.id, 'display', u.userName)) FILTER (WHERE u.id IS NOT NULL), '[]') as members
+                SELECT 
+                    g.id,
+                    g.displayName, -- Explicitly select displayName
+                    COALESCE(
+                        json_agg(
+                            json_build_object('value', u.id, 'display', u.userName)
+                        ) FILTER (WHERE u.id IS NOT NULL), '[]'
+                    ) as members
                 FROM groups g
                 LEFT JOIN group_members gm ON g.id = gm.group_id
                 LEFT JOIN users u ON gm.user_id = u.id
-                GROUP BY g.id, g.displayName ORDER BY g.displayName;`;
+                GROUP BY g.id, g.displayName
+                ORDER BY g.displayName;
+            `;
             const { rows } = await pool.query(query);
+            // The rows from the query already contain id, displayName, and members.
+            // We can directly pass them.
             res.render('groups', { groups: rows, user: req.userContext.userinfo });
         } catch (err) {
             console.error("Error fetching groups for UI:", err);
