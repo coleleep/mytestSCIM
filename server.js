@@ -1,4 +1,4 @@
-// server.js (with corrected group displayName rendering)
+// server.js (with final fix for displayName rendering)
 
 import express from 'express';
 import pg from 'pg';
@@ -12,7 +12,7 @@ const { ExpressOIDC } = OktaOidc;
 import usersRouter from './routes/users.js';
 import groupsRouter from './routes/groups.js';
 
-// --- Setup, Configuration (No changes) ---
+// --- Setup, Configuration, and Database (No changes) ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const OKTA_ORG_URL = process.env.OKTA_ORG_URL || 'https://YOUR_OKTA_DOMAIN';
@@ -20,11 +20,8 @@ const OKTA_CLIENT_ID = process.env.OKTA_CLIENT_ID || '{YourOktaClientID}';
 const OKTA_CLIENT_SECRET = process.env.OKTA_CLIENT_SECRET || '{YourOktaClientSecret}';
 const APP_SECRET = process.env.APP_SECRET || 'a-long-random-string-you-should-change';
 const API_TOKEN = process.env.API_TOKEN || "secret-token-for-okta";
-
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-// --- Database Pool Setup ---
 const { Pool } = pg;
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -42,7 +39,6 @@ const GROUP_RESOURCE_TYPE = { "schemas": ["urn:ietf:params:scim:schemas:core:2.0
 async function startServer() {
   try {
     // 1. Initialize Database Schema
-    console.log("Initializing database schema...");
     await pool.query(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, userName TEXT UNIQUE, active BOOLEAN, scim_data JSONB)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS groups (id TEXT PRIMARY KEY, displayName TEXT UNIQUE, scim_data JSONB)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS group_members (group_id TEXT REFERENCES groups(id) ON DELETE CASCADE, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (group_id, user_id))`);
@@ -53,7 +49,6 @@ async function startServer() {
     app.use(express.json({ type: ['application/json', 'application/scim+json'] }));
     app.set('view engine', 'ejs');
     app.set('views', path.join(__dirname, 'views'));
-    
     app.use(session({ secret: APP_SECRET, resave: false, saveUninitialized: true }));
     const oidc = new ExpressOIDC({
       issuer: `${OKTA_ORG_URL}/oauth2/default`,
@@ -92,14 +87,14 @@ async function startServer() {
             res.render('users', { users: users, user: req.userContext.userinfo });
         } catch (err) { res.status(500).send("Error retrieving users."); }
     });
-
-    // NEW: Corrected /ui/groups route
+    
+    // ** CORRECTED /ui/groups route **
     app.get('/ui/groups', oidc.ensureAuthenticated(), async (req, res) => {
         try {
             const query = `
                 SELECT 
                     g.id,
-                    g.displayName, -- Explicitly select displayName
+                    g.displayName AS "displayName", -- THIS IS THE FIX: Use an alias to preserve case
                     COALESCE(
                         json_agg(
                             json_build_object('value', u.id, 'display', u.userName)
@@ -112,8 +107,6 @@ async function startServer() {
                 ORDER BY g.displayName;
             `;
             const { rows } = await pool.query(query);
-            // The rows from the query already contain id, displayName, and members.
-            // We can directly pass them.
             res.render('groups', { groups: rows, user: req.userContext.userinfo });
         } catch (err) {
             console.error("Error fetching groups for UI:", err);
