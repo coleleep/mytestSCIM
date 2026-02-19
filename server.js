@@ -1,4 +1,4 @@
-// server.js (with final fix for displayName rendering)
+// server.js (with added debug logging for groups UI)
 
 import express from 'express';
 import pg from 'pg';
@@ -88,13 +88,13 @@ async function startServer() {
         } catch (err) { res.status(500).send("Error retrieving users."); }
     });
     
-    // ** CORRECTED /ui/groups route **
+    // The /ui/groups route with added logging
     app.get('/ui/groups', oidc.ensureAuthenticated(), async (req, res) => {
         try {
             const query = `
                 SELECT 
                     g.id,
-                    g.displayName AS "displayName", -- THIS IS THE FIX: Use an alias to preserve case
+                    g.displayName AS "displayName",
                     COALESCE(
                         json_agg(
                             json_build_object('value', u.id, 'display', u.userName)
@@ -107,6 +107,10 @@ async function startServer() {
                 ORDER BY g.displayName;
             `;
             const { rows } = await pool.query(query);
+
+            // ** NEW: The definitive debug log **
+            console.log("Data being passed to groups template:", JSON.stringify(rows, null, 2));
+
             res.render('groups', { groups: rows, user: req.userContext.userinfo });
         } catch (err) {
             console.error("Error fetching groups for UI:", err);
