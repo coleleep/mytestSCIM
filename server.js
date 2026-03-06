@@ -50,14 +50,15 @@ const GROUP_RESOURCE_TYPE = { "schemas": ["urn:ietf:params:scim:schemas:core:2.0
 // --- Main Server Startup Function ---
 async function startServer() {
   try {
-    // 1. Initialize Database
+    //Initialize Database
     await pool.query(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, userName TEXT UNIQUE, active BOOLEAN, scim_data JSONB)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS groups (id TEXT PRIMARY KEY, displayName TEXT UNIQUE, scim_data JSONB)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS group_members (group_id TEXT REFERENCES groups(id) ON DELETE CASCADE, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (group_id, user_id))`);
     console.log("Database schema initialized successfully.");
 
-    // 2. Configure Global Middleware
+    //Configure Global Middleware
     app.set('trust proxy', 1);
+    app.disable('x-frame-options');
     app.use(morgan('dev'));
     app.use(express.json({ type: ['application/json', 'application/scim+json'] }));
     app.use(express.urlencoded({ extended: true }));
@@ -70,7 +71,7 @@ async function startServer() {
       cookie: { secure: true, httpOnly: true, sameSite: 'none' }
     }));
 
-    // 3. OIDC and OAuth 2.0 Endpoints
+    //OIDC and OAuth 2.0 Endpoints
     const oidc = new ExpressOIDC({
       issuer: `${OKTA_ORG_URL}/oauth2/default`,
       client_id: OKTA_CLIENT_ID_UI,
@@ -97,7 +98,7 @@ async function startServer() {
         res.redirect(redirectUrl.href);
     });
 
-    // ** THIS IS THE FIX: Return a 200 OK to satisfy Okta's validation **
+    //Return a 200 OK to satisfy Okta's validation
     app.get('/token', (req, res) => {
         res.status(200).json({ message: "Token endpoint is reachable. Please use POST for actual token exchange." });
     });
@@ -115,7 +116,7 @@ async function startServer() {
         res.status(200).json({ access_token: SCIM_ACCESS_TOKEN, token_type: 'Bearer', expires_in: 3600 });
     });
 
-    // 4. SCIM Router
+    //SCIM Router
     const scimAuth = (req, res, next) => {
         const authHeader = req.headers.authorization;
         if (!authHeader || authHeader !== `Bearer ${SCIM_ACCESS_TOKEN}`) {
@@ -132,7 +133,7 @@ async function startServer() {
     scimRouter.get('/Schemas', (req, res) => res.json({ Resources: SCHEMAS }));
     app.use('/scim/v2', scimRouter);
 
-    // 5. UI Routes
+    //UI Routes
     app.get('/', (req, res) => {
       if (req.userContext) { res.redirect('/ui/users'); }
       else { res.redirect('/login'); }
@@ -161,7 +162,7 @@ async function startServer() {
         }
     });
 
-    // 6. Start Listening
+    //Start Listening
     app.listen(PORT, () => {
         console.log(`Server is running and ready on port ${PORT}`);
     });
