@@ -1,3 +1,5 @@
+// server.js (with .well-known/openid-configuration endpoint)
+
 import express from 'express';
 import pg from 'pg';
 import path from 'path';
@@ -14,10 +16,14 @@ import groupsRouter from './routes/groups.js';
 // --- Configuration ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// UI Authentication Config
 const OKTA_ORG_URL = process.env.OKTA_ORG_URL;
 const OKTA_CLIENT_ID_UI = process.env.OKTA_CLIENT_ID_UI;
 const OKTA_CLIENT_SECRET_UI = process.env.OKTA_CLIENT_SECRET_UI;
 const APP_SECRET = process.env.APP_SECRET;
+
+// SCIM API OAuth credentials
 const OAUTH_CLIENT_ID = process.env.OAUTH_CLIENT_ID;
 const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET;
 const SCIM_ACCESS_TOKEN = process.env.SCIM_ACCESS_TOKEN || `tok-${crypto.randomBytes(24).toString('hex')}`;
@@ -25,6 +31,7 @@ const SCIM_ACCESS_TOKEN = process.env.SCIM_ACCESS_TOKEN || `tok-${crypto.randomB
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// In-memory store for temporary authorization codes
 const authCodes = new Map();
 
 // --- Database Pool Setup ---
@@ -42,50 +49,54 @@ const SERVICE_PROVIDER_CONFIG = { "schemas": ["urn:ietf:params:scim:schemas:core
 const USER_RESOURCE_TYPE = { "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ResourceType"], "id": "User", "name": "User", "endpoint": "/scim/v2/Users", "description": "User Account", "schema": "urn:ietf:params:scim:schemas:core:2.0:User", "meta": { "location": "/scim/v2/ResourceTypes/User", "resourceType": "ResourceType" } };
 const GROUP_RESOURCE_TYPE = { "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ResourceType"], "id": "Group", "name": "Group", "endpoint": "/scim/v2/Groups", "description": "Group", "schema": "urn:ietf:params:scim:schemas:core:2.0:Group", "meta": { "location": "/scim/v2/ResourceTypes/Group", "resourceType": "ResourceType" } };
 
-const globalRequestLogger = (req, res, next) => {
-    console.log('\n--- GLOBAL LOGGER: INCOMING REQUEST ---');
-    console.log(`Timestamp: ${new Date().toISOString()}`);
-    console.log(`Method: ${req.method}`);
-    console.log(`Path: ${req.originalUrl}`);
-    console.log('Headers:', JSON.stringify(req.headers, null, 2));
-
-    if (req.body && Object.keys(req.body).length > 0) {
-        console.log('Body:', JSON.stringify(req.body, null, 2));
-    } else {
-        console.log('Body: [Empty]');
-    }
-    console.log('-------------------------------------\n');
-    next();
-};
-
-
+// --- Main Server Startup Function ---
 async function startServer() {
   try {
-    // 1. DB Init
+    // 1. Initialize Database
     await pool.query(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, userName TEXT UNIQUE, active BOOLEAN, scim_data JSONB)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS groups (id TEXT PRIMARY KEY, displayName TEXT UNIQUE, scim_data JSONB)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS group_members (group_id TEXT REFERENCES groups(id) ON DELETE CASCADE, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (group_id, user_id))`);
     console.log("Database schema initialized successfully.");
 
-    // 2. Configure Middleware
+    // 2. Configure Global Middleware
     app.set('trust proxy', 1);
     app.disable('x-frame-options');
     app.use(morgan('dev'));
     app.use(express.json({ type: ['application/json', 'application/scim+json'] }));
     app.use(express.urlencoded({ extended: true }));
-    app.use(globalRequestLogger);
-
     app.set('view engine', 'ejs');
     app.set('views', path.join(__dirname, 'views'));
     app.use(session({
-      secret: APP_SECRET, resave: false, saveUninitialized: true,
+      secret: APP_SECRET,
+      resave: false,
+      saveUninitialized: true,
       cookie: { secure: true, httpOnly: true, sameSite: 'none' }
     }));
 
-    // 3. OIDC and OAuth 2.0 Endpoints
+    // 3. OIDC, OAuth 2.0, and Well-Known Endpoints
+    
+    // ** THIS IS THE NEW ENDPOINT **
+    app.get('/.well-known/openid-configuration', (req, res) => {
+        const baseUrl = process.env.BASE_URL;
+        const metadata = {
+            issuer: baseUrl,
+            authorization_endpoint: `${baseUrl}/authorize`,
+            token_endpoint: `${baseUrl}/token`,
+            // Since we use opaque tokens, we don't have a jwks_uri.
+            // This is a minimal but correct configuration for our setup.
+            response_types_supported: ["code"],
+            token_endpoint_auth_methods_supported: ["client_secret_post"],
+            grant_types_supported: ["authorization_code"]
+        };
+        res.json(metadata);
+    });
+
     const oidc = new ExpressOIDC({
-      issuer: `${OKTA_ORG_URL}/oauth2/default`, client_id: OKTA_CLIENT_ID_UI, client_secret: OKTA_CLIENT_SECRET_UI,
-      appBaseUrl: process.env.BASE_URL, scope: 'openid profile',
+      issuer: `${OKTA_ORG_URL}/oauth2/default`,
+      client_id: OKTA_CLIENT_ID_UI,
+      client_secret: OKTA_CLIENT_SECRET_UI,
+      appBaseUrl: process.env.BASE_URL,
+      scope: 'openid profile',
       routes: { login: { path: '/login' }, callback: { path: '/authorization-code/callback', afterCallback: '/' } }
     });
     app.use(oidc.router);
@@ -95,6 +106,7 @@ async function startServer() {
         if (client_id !== OAUTH_CLIENT_ID) { return res.status(400).send("Invalid client_id"); }
         res.render('consent', { client_id, redirect_uri, state });
     });
+
     app.post('/authorize/grant', (req, res) => {
         const { client_id, redirect_uri, state } = req.body;
         const code = `code-${crypto.randomBytes(16).toString('hex')}`;
@@ -104,9 +116,11 @@ async function startServer() {
         if (state) { redirectUrl.searchParams.set('state', state); }
         res.redirect(redirectUrl.href);
     });
+
     app.get('/token', (req, res) => {
         res.status(200).json({ message: "Token endpoint is reachable. Please use POST for actual token exchange." });
     });
+
     app.post('/token', (req, res) => {
         const { grant_type, code, client_id, client_secret } = req.body;
         if (grant_type !== 'authorization_code') { return res.status(400).json({ error: 'unsupported_grant_type' }); }
