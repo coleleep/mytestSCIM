@@ -14,14 +14,10 @@ import groupsRouter from './routes/groups.js';
 // --- Configuration ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// UI Authentication Config
 const OKTA_ORG_URL = process.env.OKTA_ORG_URL;
 const OKTA_CLIENT_ID_UI = process.env.OKTA_CLIENT_ID_UI;
 const OKTA_CLIENT_SECRET_UI = process.env.OKTA_CLIENT_SECRET_UI;
 const APP_SECRET = process.env.APP_SECRET;
-
-// SCIM API OAuth credentials are now fully independent
 const OAUTH_CLIENT_ID = process.env.OAUTH_CLIENT_ID;
 const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET;
 const SCIM_ACCESS_TOKEN = process.env.SCIM_ACCESS_TOKEN || `tok-${crypto.randomBytes(24).toString('hex')}`;
@@ -29,7 +25,6 @@ const SCIM_ACCESS_TOKEN = process.env.SCIM_ACCESS_TOKEN || `tok-${crypto.randomB
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// In-memory store for temporary authorization codes
 const authCodes = new Map();
 
 // --- Database Pool Setup ---
@@ -47,37 +42,50 @@ const SERVICE_PROVIDER_CONFIG = { "schemas": ["urn:ietf:params:scim:schemas:core
 const USER_RESOURCE_TYPE = { "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ResourceType"], "id": "User", "name": "User", "endpoint": "/scim/v2/Users", "description": "User Account", "schema": "urn:ietf:params:scim:schemas:core:2.0:User", "meta": { "location": "/scim/v2/ResourceTypes/User", "resourceType": "ResourceType" } };
 const GROUP_RESOURCE_TYPE = { "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ResourceType"], "id": "Group", "name": "Group", "endpoint": "/scim/v2/Groups", "description": "Group", "schema": "urn:ietf:params:scim:schemas:core:2.0:Group", "meta": { "location": "/scim/v2/ResourceTypes/Group", "resourceType": "ResourceType" } };
 
-// --- Main Server Startup Function ---
+const globalRequestLogger = (req, res, next) => {
+    console.log('\n--- GLOBAL LOGGER: INCOMING REQUEST ---');
+    console.log(`Timestamp: ${new Date().toISOString()}`);
+    console.log(`Method: ${req.method}`);
+    console.log(`Path: ${req.originalUrl}`);
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+
+    if (req.body && Object.keys(req.body).length > 0) {
+        console.log('Body:', JSON.stringify(req.body, null, 2));
+    } else {
+        console.log('Body: [Empty]');
+    }
+    console.log('-------------------------------------\n');
+    next();
+};
+
+
 async function startServer() {
   try {
-    //Initialize Database
+    // 1. DB Init
     await pool.query(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, userName TEXT UNIQUE, active BOOLEAN, scim_data JSONB)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS groups (id TEXT PRIMARY KEY, displayName TEXT UNIQUE, scim_data JSONB)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS group_members (group_id TEXT REFERENCES groups(id) ON DELETE CASCADE, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (group_id, user_id))`);
     console.log("Database schema initialized successfully.");
 
-    //Configure Global Middleware
+    // 2. Configure Middleware
     app.set('trust proxy', 1);
     app.disable('x-frame-options');
     app.use(morgan('dev'));
     app.use(express.json({ type: ['application/json', 'application/scim+json'] }));
     app.use(express.urlencoded({ extended: true }));
+    app.use(globalRequestLogger);
+
     app.set('view engine', 'ejs');
     app.set('views', path.join(__dirname, 'views'));
     app.use(session({
-      secret: APP_SECRET,
-      resave: false,
-      saveUninitialized: true,
+      secret: APP_SECRET, resave: false, saveUninitialized: true,
       cookie: { secure: true, httpOnly: true, sameSite: 'none' }
     }));
 
-    //OIDC and OAuth 2.0 Endpoints
+    // 3. OIDC and OAuth 2.0 Endpoints
     const oidc = new ExpressOIDC({
-      issuer: `${OKTA_ORG_URL}/oauth2/default`,
-      client_id: OKTA_CLIENT_ID_UI,
-      client_secret: OKTA_CLIENT_SECRET_UI,
-      appBaseUrl: process.env.BASE_URL,
-      scope: 'openid profile',
+      issuer: `${OKTA_ORG_URL}/oauth2/default`, client_id: OKTA_CLIENT_ID_UI, client_secret: OKTA_CLIENT_SECRET_UI,
+      appBaseUrl: process.env.BASE_URL, scope: 'openid profile',
       routes: { login: { path: '/login' }, callback: { path: '/authorization-code/callback', afterCallback: '/' } }
     });
     app.use(oidc.router);
@@ -87,7 +95,6 @@ async function startServer() {
         if (client_id !== OAUTH_CLIENT_ID) { return res.status(400).send("Invalid client_id"); }
         res.render('consent', { client_id, redirect_uri, state });
     });
-
     app.post('/authorize/grant', (req, res) => {
         const { client_id, redirect_uri, state } = req.body;
         const code = `code-${crypto.randomBytes(16).toString('hex')}`;
@@ -97,17 +104,13 @@ async function startServer() {
         if (state) { redirectUrl.searchParams.set('state', state); }
         res.redirect(redirectUrl.href);
     });
-
-    //Return a 200 OK to satisfy Okta's validation
     app.get('/token', (req, res) => {
         res.status(200).json({ message: "Token endpoint is reachable. Please use POST for actual token exchange." });
     });
-
     app.post('/token', (req, res) => {
         const { grant_type, code, client_id, client_secret } = req.body;
         if (grant_type !== 'authorization_code') { return res.status(400).json({ error: 'unsupported_grant_type' }); }
         if (client_id !== OAUTH_CLIENT_ID || client_secret !== OAUTH_CLIENT_SECRET) {
-            console.error("Invalid client credentials provided to /token endpoint.");
             return res.status(401).json({ error: 'invalid_client' });
         }
         const storedCode = authCodes.get(code);
@@ -116,7 +119,7 @@ async function startServer() {
         res.status(200).json({ access_token: SCIM_ACCESS_TOKEN, token_type: 'Bearer', expires_in: 3600 });
     });
 
-    //SCIM Router
+    // 4. SCIM Router
     const scimAuth = (req, res, next) => {
         const authHeader = req.headers.authorization;
         if (!authHeader || authHeader !== `Bearer ${SCIM_ACCESS_TOKEN}`) {
@@ -133,7 +136,7 @@ async function startServer() {
     scimRouter.get('/Schemas', (req, res) => res.json({ Resources: SCHEMAS }));
     app.use('/scim/v2', scimRouter);
 
-    //UI Routes
+    // 5. UI Routes
     app.get('/', (req, res) => {
       if (req.userContext) { res.redirect('/ui/users'); }
       else { res.redirect('/login'); }
@@ -162,7 +165,7 @@ async function startServer() {
         }
     });
 
-    //Start Listening
+    // 6. Start Listening
     app.listen(PORT, () => {
         console.log(`Server is running and ready on port ${PORT}`);
     });
