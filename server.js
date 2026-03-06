@@ -1,3 +1,5 @@
+// server.js (with decoupled SCIM OAuth credentials)
+
 import express from 'express';
 import pg from 'pg';
 import path from 'path';
@@ -11,26 +13,25 @@ const { ExpressOIDC } = OktaOidc;
 import usersRouter from './routes/users.js';
 import groupsRouter from './routes/groups.js';
 
-// --- Setup & Configuration ---
+// --- Configuration ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// UI Authentication Config
+// UI Authentication Config (Remains unchanged)
 const OKTA_ORG_URL = process.env.OKTA_ORG_URL;
 const OKTA_CLIENT_ID_UI = process.env.OKTA_CLIENT_ID_UI;
 const OKTA_CLIENT_SECRET_UI = process.env.OKTA_CLIENT_SECRET_UI;
 const APP_SECRET = process.env.APP_SECRET;
 
-// SCIM API OAuth 2.0 Config
-const OAUTH_CLIENT_ID = process.env.OAUTH_CLIENT_ID || OKTA_CLIENT_ID_UI;
-const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET || OKTA_CLIENT_SECRET_UI;
+// SCIM API OAuth credentials are now fully independent
+const OAUTH_CLIENT_ID = process.env.OAUTH_CLIENT_ID;
+const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET;
 const SCIM_ACCESS_TOKEN = process.env.SCIM_ACCESS_TOKEN || `tok-${crypto.randomBytes(24).toString('hex')}`;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// In-memory store for temporary authorization codes.
-// In a multi-server production environment, this should be a shared store like Redis.
+// In-memory store for temporary authorization codes
 const authCodes = new Map();
 
 // --- Database Pool Setup ---
@@ -52,7 +53,6 @@ const GROUP_RESOURCE_TYPE = { "schemas": ["urn:ietf:params:scim:schemas:core:2.0
 async function startServer() {
   try {
     // 1. Initialize Database Schema
-    console.log("Initializing database schema...");
     await pool.query(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, userName TEXT UNIQUE, active BOOLEAN, scim_data JSONB)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS groups (id TEXT PRIMARY KEY, displayName TEXT UNIQUE, scim_data JSONB)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS group_members (group_id TEXT REFERENCES groups(id) ON DELETE CASCADE, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (group_id, user_id))`);
@@ -106,7 +106,10 @@ async function startServer() {
     app.post('/token', (req, res) => {
         const { grant_type, code, client_id, client_secret } = req.body;
         if (grant_type !== 'authorization_code') { return res.status(400).json({ error: 'unsupported_grant_type' }); }
-        if (client_id !== OAUTH_CLIENT_ID || client_secret !== OAUTH_CLIENT_SECRET) { return res.status(401).json({ error: 'invalid_client' }); }
+        if (client_id !== OAUTH_CLIENT_ID || client_secret !== OAUTH_CLIENT_SECRET) {
+            console.error("Invalid client credentials provided to /token endpoint.");
+            return res.status(401).json({ error: 'invalid_client' });
+        }
         const storedCode = authCodes.get(code);
         if (!storedCode || storedCode.expires < Date.now() || storedCode.clientId !== client_id) { return res.status(400).json({ error: 'invalid_grant' }); }
         authCodes.delete(code);
