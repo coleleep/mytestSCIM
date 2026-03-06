@@ -1,4 +1,4 @@
-// server.js (with .well-known/openid-configuration endpoint)
+// server.js (Manually removing X-Frame-Options header)
 
 import express from 'express';
 import pg from 'pg';
@@ -16,14 +16,10 @@ import groupsRouter from './routes/groups.js';
 // --- Configuration ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// UI Authentication Config
 const OKTA_ORG_URL = process.env.OKTA_ORG_URL;
 const OKTA_CLIENT_ID_UI = process.env.OKTA_CLIENT_ID_UI;
 const OKTA_CLIENT_SECRET_UI = process.env.OKTA_CLIENT_SECRET_UI;
 const APP_SECRET = process.env.APP_SECRET;
-
-// SCIM API OAuth credentials
 const OAUTH_CLIENT_ID = process.env.OAUTH_CLIENT_ID;
 const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET;
 const SCIM_ACCESS_TOKEN = process.env.SCIM_ACCESS_TOKEN || `tok-${crypto.randomBytes(24).toString('hex')}`;
@@ -31,7 +27,6 @@ const SCIM_ACCESS_TOKEN = process.env.SCIM_ACCESS_TOKEN || `tok-${crypto.randomB
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// In-memory store for temporary authorization codes
 const authCodes = new Map();
 
 // --- Database Pool Setup ---
@@ -60,12 +55,18 @@ async function startServer() {
 
     // 2. Configure Global Middleware
     app.set('trust proxy', 1);
-    app.disable('x-frame-options');
     app.use(morgan('dev'));
     app.use(express.json({ type: ['application/json', 'application/scim+json'] }));
     app.use(express.urlencoded({ extended: true }));
     app.set('view engine', 'ejs');
     app.set('views', path.join(__dirname, 'views'));
+    
+    // ** THIS IS THE FIX: Manually remove the X-Frame-Options header on every request **
+    app.use((req, res, next) => {
+      res.removeHeader('X-Frame-Options');
+      next();
+    });
+
     app.use(session({
       secret: APP_SECRET,
       resave: false,
@@ -73,24 +74,7 @@ async function startServer() {
       cookie: { secure: true, httpOnly: true, sameSite: 'none' }
     }));
 
-    // 3. OIDC, OAuth 2.0, and Well-Known Endpoints
-    
-    // ** THIS IS THE NEW ENDPOINT **
-    app.get('/.well-known/openid-configuration', (req, res) => {
-        const baseUrl = process.env.BASE_URL;
-        const metadata = {
-            issuer: baseUrl,
-            authorization_endpoint: `${baseUrl}/authorize`,
-            token_endpoint: `${baseUrl}/token`,
-            // Since we use opaque tokens, we don't have a jwks_uri.
-            // This is a minimal but correct configuration for our setup.
-            response_types_supported: ["code"],
-            token_endpoint_auth_methods_supported: ["client_secret_post"],
-            grant_types_supported: ["authorization_code"]
-        };
-        res.json(metadata);
-    });
-
+    // 3. OIDC and OAuth 2.0 Endpoints
     const oidc = new ExpressOIDC({
       issuer: `${OKTA_ORG_URL}/oauth2/default`,
       client_id: OKTA_CLIENT_ID_UI,
@@ -106,7 +90,6 @@ async function startServer() {
         if (client_id !== OAUTH_CLIENT_ID) { return res.status(400).send("Invalid client_id"); }
         res.render('consent', { client_id, redirect_uri, state });
     });
-
     app.post('/authorize/grant', (req, res) => {
         const { client_id, redirect_uri, state } = req.body;
         const code = `code-${crypto.randomBytes(16).toString('hex')}`;
@@ -116,11 +99,9 @@ async function startServer() {
         if (state) { redirectUrl.searchParams.set('state', state); }
         res.redirect(redirectUrl.href);
     });
-
     app.get('/token', (req, res) => {
         res.status(200).json({ message: "Token endpoint is reachable. Please use POST for actual token exchange." });
     });
-
     app.post('/token', (req, res) => {
         const { grant_type, code, client_id, client_secret } = req.body;
         if (grant_type !== 'authorization_code') { return res.status(400).json({ error: 'unsupported_grant_type' }); }
