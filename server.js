@@ -60,6 +60,7 @@ async function startServer() {
 
     // 2. Configure Global Middleware
     app.set('trust proxy', 1);
+    app.disable('x-frame-options');
     app.use(morgan('dev'));
     app.use(express.json({ type: ['application/json', 'application/scim+json'] }));
     app.use(express.urlencoded({ extended: true }));
