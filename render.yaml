@@ -1,0 +1,20 @@
+# render.yaml
+
+services:
+  # This defines your web service
+  - type: web
+    name: mytestSCIM # Or whatever you named it in Render
+    env: node
+    plan: free # Or your current plan
+    buildCommand: "npm install"
+    startCommand: "node server.js"
+    
+    # This is the crucial section to fix the framing error
+    headers:
+      # This rule applies to all paths (/*) on your service
+      - path: "/*"
+        # We are defining a rule for the X-Frame-Options header
+        name: "X-Frame-Options"
+        # This is the key instruction: it tells Render's proxy
+        # to NOT add this header to the response.
+        remove: true
