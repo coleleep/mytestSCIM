@@ -124,6 +124,25 @@ async function startServer() {
     };
     const scimRouter = express.Router();
     scimRouter.use(scimAuth);
+
+    // Log request body and response for mutating SCIM operations
+    scimRouter.use((req, res, next) => {
+      if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+        console.log(`\n[SCIM] --> ${req.method} ${req.path}`);
+        console.log('[SCIM] Request Body:', JSON.stringify(req.body, null, 2));
+
+        const originalJson = res.json.bind(res);
+        res.json = (body) => {
+          console.log(`[SCIM] <-- ${req.method} ${req.path} ${res.statusCode}`);
+          if (res.statusCode !== 204) {
+            console.log('[SCIM] Response Body:', JSON.stringify(body, null, 2));
+          }
+          return originalJson(body);
+        };
+      }
+      next();
+    });
+
     scimRouter.use('/users', usersRouter);
     scimRouter.use('/groups', groupsRouter);
     scimRouter.get('/ServiceProviderConfig', (req, res) => res.json(SERVICE_PROVIDER_CONFIG));

@@ -154,6 +154,7 @@ router.patch('/:id', async (req, res) => {
         for (const op of Operations) {
             if (op.op.toLowerCase() === 'add' && op.path === 'members') {
                 const memberIds = op.value.map(v => v.value);
+                console.log(`[PATCH /Groups/${groupId}] add members:`, memberIds);
                 for (const userId of memberIds) {
                     await client.query(`INSERT INTO group_members (group_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [groupId, userId]);
                 }
@@ -161,9 +162,11 @@ router.patch('/:id', async (req, res) => {
                 const match = op.path.match(/\[value eq "(.+?)"\]/);
                 if (match && match[1]) {
                     const userId = match[1];
+                    console.log(`[PATCH /Groups/${groupId}] remove member:`, userId);
                     await client.query(`DELETE FROM group_members WHERE group_id = $1 AND user_id = $2`, [groupId, userId]);
                 }
             } else if (op.op.toLowerCase() === 'replace' && op.path === 'displayName') {
+                console.log(`[PATCH /Groups/${groupId}] replace displayName:`, op.value);
                 await client.query(`UPDATE groups SET displayName = $1 WHERE id = $2`, [op.value, groupId]);
             }
         }
