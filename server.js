@@ -103,15 +103,37 @@ async function startServer() {
         res.status(200).json({ message: "Token endpoint is reachable. Please use POST for actual token exchange." });
     });
     app.post('/token', (req, res) => {
-        const { grant_type, code, client_id, client_secret } = req.body;
-        if (grant_type !== 'authorization_code') { return res.status(400).json({ error: 'unsupported_grant_type' }); }
-        if (client_id !== OAUTH_CLIENT_ID || client_secret !== OAUTH_CLIENT_SECRET) {
-            return res.status(401).json({ error: 'invalid_client' });
+        const { grant_type, code } = req.body;
+
+        // Support client credentials via HTTP Basic Auth header or request body
+        let client_id = req.body.client_id;
+        let client_secret = req.body.client_secret;
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Basic ')) {
+            const decoded = Buffer.from(authHeader.slice(6), 'base64').toString('utf8');
+            const [basicId, basicSecret] = decoded.split(':');
+            if (basicId) client_id = basicId;
+            if (basicSecret) client_secret = basicSecret;
         }
-        const storedCode = authCodes.get(code);
-        if (!storedCode || storedCode.expires < Date.now() || storedCode.clientId !== client_id) { return res.status(400).json({ error: 'invalid_grant' }); }
-        authCodes.delete(code);
-        res.status(200).json({ access_token: SCIM_ACCESS_TOKEN, token_type: 'Bearer', expires_in: 3600 });
+
+        if (grant_type === 'client_credentials') {
+            if (client_id !== OAUTH_CLIENT_ID || client_secret !== OAUTH_CLIENT_SECRET) {
+                return res.status(401).json({ error: 'invalid_client' });
+            }
+            return res.status(200).json({ access_token: SCIM_ACCESS_TOKEN, token_type: 'Bearer', expires_in: 3600 });
+        }
+
+        if (grant_type === 'authorization_code') {
+            if (client_id !== OAUTH_CLIENT_ID || client_secret !== OAUTH_CLIENT_SECRET) {
+                return res.status(401).json({ error: 'invalid_client' });
+            }
+            const storedCode = authCodes.get(code);
+            if (!storedCode || storedCode.expires < Date.now() || storedCode.clientId !== client_id) { return res.status(400).json({ error: 'invalid_grant' }); }
+            authCodes.delete(code);
+            return res.status(200).json({ access_token: SCIM_ACCESS_TOKEN, token_type: 'Bearer', expires_in: 3600 });
+        }
+
+        return res.status(400).json({ error: 'unsupported_grant_type' });
     });
 
     // 4. SCIM Router
