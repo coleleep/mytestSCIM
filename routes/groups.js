@@ -11,14 +11,30 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// GET /scim/v2/Groups - List Groups with Pagination (Unchanged)
+// GET /scim/v2/Groups - List Groups with Pagination and Filter support
 router.get('/', async (req, res) => {
     try {
         const startIndex = parseInt(req.query.startIndex, 10) || 1;
         const count = parseInt(req.query.count, 10) || 100;
-        const totalResultPromise = pool.query(`SELECT COUNT(*) AS total FROM groups`);
-        const groupsPromise = pool.query(`SELECT scim_data FROM groups ORDER BY displayName LIMIT $1 OFFSET $2`, [count, startIndex - 1]);
-        const [totalResult, groupsResult] = await Promise.all([totalResultPromise, groupsPromise]);
+        const filter = req.query.filter;
+
+        let totalResult, groupsResult;
+
+        if (filter) {
+            const match = filter.match(/displayName\s+eq\s+"(.+?)"/);
+            if (match && match[1]) {
+                const displayName = match[1];
+                totalResult = await pool.query(`SELECT COUNT(*) AS total FROM groups WHERE displayName = $1`, [displayName]);
+                groupsResult = await pool.query(`SELECT scim_data FROM groups WHERE displayName = $1 ORDER BY displayName LIMIT $2 OFFSET $3`, [displayName, count, startIndex - 1]);
+            } else {
+                totalResult = await pool.query(`SELECT COUNT(*) AS total FROM groups`);
+                groupsResult = await pool.query(`SELECT scim_data FROM groups ORDER BY displayName LIMIT $1 OFFSET $2`, [count, startIndex - 1]);
+            }
+        } else {
+            totalResult = await pool.query(`SELECT COUNT(*) AS total FROM groups`);
+            groupsResult = await pool.query(`SELECT scim_data FROM groups ORDER BY displayName LIMIT $1 OFFSET $2`, [count, startIndex - 1]);
+        }
+
         const totalResults = parseInt(totalResult.rows[0].total, 10);
         const resources = groupsResult.rows.map(row => row.scim_data);
         res.json({
