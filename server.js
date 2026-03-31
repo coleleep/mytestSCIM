@@ -49,7 +49,8 @@ async function startServer() {
   try {
     // 1. Initialize Database
     await pool.query(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, userName TEXT UNIQUE, active BOOLEAN, scim_data JSONB)`);
-    await pool.query(`CREATE TABLE IF NOT EXISTS groups (id TEXT PRIMARY KEY, displayName TEXT UNIQUE, scim_data JSONB)`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS groups (id TEXT PRIMARY KEY, displayName TEXT, scim_data JSONB)`);
+    await pool.query(`ALTER TABLE groups DROP CONSTRAINT IF EXISTS groups_displayname_key`);
     await pool.query(`CREATE TABLE IF NOT EXISTS group_members (group_id TEXT REFERENCES groups(id) ON DELETE CASCADE, user_id TEXT REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (group_id, user_id))`);
     console.log("Database schema initialized successfully.");
 
