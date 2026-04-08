@@ -157,10 +157,19 @@ async function startServer() {
         const originalJson = res.json.bind(res);
         res.json = (body) => {
           console.log(`[SCIM] <-- ${req.method} ${req.path} ${res.statusCode}`);
-          if (res.statusCode !== 204) {
-            console.log('[SCIM] Response Body:', JSON.stringify(body, null, 2));
-          }
+          console.log('[SCIM] Response Body:', JSON.stringify(body, null, 2));
           return originalJson(body);
+        };
+
+        const originalSend = res.send.bind(res);
+        res.send = (body) => {
+          console.log(`[SCIM] <-- ${req.method} ${req.path} ${res.statusCode}`);
+          if (body) {
+            console.log('[SCIM] Response Body:', body);
+          } else {
+            console.log('[SCIM] Response Body: (empty)');
+          }
+          return originalSend(body);
         };
       }
       next();
