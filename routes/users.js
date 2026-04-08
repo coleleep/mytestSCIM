@@ -102,9 +102,16 @@ router.patch('/:id', async (req, res) => {
     const userId = req.params.id;
     const { Operations } = req.body;
     if (!Operations) { return res.status(400).json({ detail: "PATCH request must contain 'Operations'" }); }
-    const activeOp = Operations.find(op => op.op.toLowerCase() === 'replace' && op.path === 'active');
+    const activeOp = Operations.find(op => {
+        if (op.op.toLowerCase() !== 'replace') return false;
+        // Format 1: { op: "replace", path: "active", value: false }
+        if (op.path === 'active') return true;
+        // Format 2: { op: "replace", value: { active: false } }  (Okta's format)
+        if (!op.path && typeof op.value === 'object' && 'active' in op.value) return true;
+        return false;
+    });
     if (activeOp) {
-        const newActiveStatus = activeOp.value;
+        const newActiveStatus = activeOp.path === 'active' ? activeOp.value : activeOp.value.active;
         try {
             const { rows } = await pool.query(`SELECT scim_data FROM users WHERE id = $1`, [userId]);
             if (rows.length === 0) { return res.status(404).json({ detail: "User not found" }); }
