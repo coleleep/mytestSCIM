@@ -57,6 +57,14 @@ async function startServer() {
     // 2. Configure Global Middleware
     app.set('trust proxy', 1);
     app.use(morgan('dev'));
+
+    // Log request headers for all incoming requests
+    app.use((req, res, next) => {
+      console.log(`\n[Headers] --> ${req.method} ${req.url}`);
+      console.log('[Headers] Request Headers:', JSON.stringify(req.headers, null, 2));
+      next();
+    });
+
     app.use(express.json({ type: ['application/json', 'application/scim+json'] }));
     app.use(express.urlencoded({ extended: true }));
     app.set('view engine', 'ejs');
