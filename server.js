@@ -23,6 +23,8 @@ const APP_SECRET = process.env.APP_SECRET;
 const OAUTH_CLIENT_ID = process.env.OAUTH_CLIENT_ID;
 const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET;
 const SCIM_ACCESS_TOKEN = process.env.SCIM_ACCESS_TOKEN || `tok-${crypto.randomBytes(24).toString('hex')}`;
+const SCIM_BASIC_USER = process.env.SCIM_BASIC_USER;
+const SCIM_BASIC_PASS = process.env.SCIM_BASIC_PASS;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -40,7 +42,13 @@ const pool = new Pool({
 const USER_SCHEMA = { "id": "urn:ietf:params:scim:schemas:core:2.0:User", "name": "User", "description": "User Account", "attributes": [ { "name": "userName", "type": "string", "multiValued": false, "description": "Unique identifier for the User.", "required": true, "caseExact": false, "mutability": "readWrite", "returned": "default", "uniqueness": "server" }, { "name": "name", "type": "complex", "multiValued": false, "description": "The components of the user's real name.", "required": false, "subAttributes": [ { "name": "formatted", "type": "string", "multiValued": false, "description": "The full name, including all middle names, titles, and suffixes.", "required": false, "mutability": "readWrite", "returned": "default" }, { "name": "familyName", "type": "string", "multiValued": false, "description": "The family name of the User.", "required": false, "mutability": "readWrite", "returned": "default" }, { "name": "givenName", "type": "string", "multiValued": false, "description": "The given name of the User.", "required": false, "mutability": "readWrite", "returned": "default" } ]}, { "name": "displayName", "type": "string", "multiValued": false, "description": "The name of the User, suitable for display to end-users.", "required": false, "mutability": "readWrite", "returned": "default" }, { "name": "emails", "type": "complex", "multiValued": true, "description": "Email addresses for the user.", "required": false, "subAttributes": [ { "name": "value", "type": "string", "multiValued": false, "description": "Email address for the user.", "required": false, "mutability": "readWrite", "returned": "default" }, { "name": "type", "type": "string", "multiValued": false, "description": "A label indicating the attribute's function.", "required": false, "canonicalValues": ["work", "home", "other"], "mutability": "readWrite", "returned": "default" }, { "name": "primary", "type": "boolean", "multiValued": false, "description": "A Boolean value indicating the 'primary' or preferred attribute value for this attribute.", "required": false, "mutability": "readWrite", "returned": "default" } ]}, { "name": "active", "type": "boolean", "multiValued": false, "description": "A Boolean value indicating the user's administrative status.", "required": false, "mutability": "readWrite", "returned": "default" }, { "name": "manager", "type": "complex", "multiValued": false, "description": "The user's manager.", "required": false, "mutability": "readWrite", "returned": "default", "subAttributes": [ { "name": "value", "type": "string", "multiValued": false, "description": "The id of the SCIM resource representing the user's manager.", "required": false, "mutability": "readWrite", "returned": "default" }, { "name": "$ref", "type": "reference", "referenceTypes": ["User"], "multiValued": false, "description": "The URI of the SCIM resource representing the user's manager.", "required": false, "mutability": "readWrite", "returned": "default" }, { "name": "displayName", "type": "string", "multiValued": false, "description": "The displayName of the user's manager.", "required": false, "mutability": "readOnly", "returned": "default" } ]} ], "meta": { "resourceType": "Schema", "location": "/scim/v2/Schemas/urn:ietf:params:scim:schemas:core:2.0:User" } };
 const GROUP_SCHEMA = { "id": "urn:ietf:params:scim:schemas:core:2.0:Group", "name": "Group", "description": "Group", "attributes": [ { "name": "displayName", "type": "string", "multiValued": false, "description": "A human-readable name for the Group.", "required": true, "mutability": "readWrite", "returned": "default" }, { "name": "members", "type": "complex", "multiValued": true, "description": "A list of members of the Group.", "required": false, "mutability": "readWrite", "returned": "default", "subAttributes": [ { "name": "value", "type": "string", "multiValued": false, "description": "Identifier of the member of this Group.", "required": false, "mutability": "immutable", "returned": "default" }, { "name": "$ref", "type": "reference", "multiValued": false, "description": "The URI of the corresponding 'User' resource.", "required": false, "mutability": "immutable", "returned": "default" }, { "name": "display", "type": "string", "multiValued": false, "description": "A human-readable name for the member.", "required": false, "mutability": "immutable", "returned": "default" } ]} ], "meta": { "resourceType": "Schema", "location": "/scim/v2/Schemas/urn:ietf:params:scim:schemas:core:2.0:Group" }};
 const SCHEMAS = [USER_SCHEMA, GROUP_SCHEMA];
-const SERVICE_PROVIDER_CONFIG = { "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"], "documentationUri": "http://example.com/help/scim.html", "patch": { "supported": true }, "bulk": { "supported": false, "maxOperations": 0, "maxPayloadSize": 0 }, "filter": { "supported": true, "maxResults": 100 }, "changePassword": { "supported": false }, "sort": { "supported": false }, "etag": { "supported": false }, "authenticationSchemes": [ { "name": "OAuth Bearer Token", "description": "Authentication scheme using the OAuth Bearer Token standard.", "specUri": "http://www.rfc-editor.org/info/rfc6750", "type": "oauthbearertoken", "primary": true } ], "meta": { "location": "/scim/v2/ServiceProviderConfig", "resourceType": "ServiceProviderConfig" } };
+const AUTH_SCHEMES = [
+    { "name": "OAuth Bearer Token", "description": "Authentication scheme using the OAuth Bearer Token standard.", "specUri": "http://www.rfc-editor.org/info/rfc6750", "type": "oauthbearertoken", "primary": true }
+];
+if (SCIM_BASIC_USER && SCIM_BASIC_PASS) {
+    AUTH_SCHEMES.push({ "name": "HTTP Basic", "description": "Authentication scheme using the HTTP Basic Standard.", "specUri": "http://www.rfc-editor.org/info/rfc2617", "type": "httpbasic" });
+}
+const SERVICE_PROVIDER_CONFIG = { "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"], "documentationUri": "http://example.com/help/scim.html", "patch": { "supported": true }, "bulk": { "supported": false, "maxOperations": 0, "maxPayloadSize": 0 }, "filter": { "supported": true, "maxResults": 100 }, "changePassword": { "supported": false }, "sort": { "supported": false }, "etag": { "supported": false }, "authenticationSchemes": AUTH_SCHEMES, "meta": { "location": "/scim/v2/ServiceProviderConfig", "resourceType": "ServiceProviderConfig" } };
 const USER_RESOURCE_TYPE = { "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ResourceType"], "id": "User", "name": "User", "endpoint": "/scim/v2/Users", "description": "User Account", "schema": "urn:ietf:params:scim:schemas:core:2.0:User", "meta": { "location": "/scim/v2/ResourceTypes/User", "resourceType": "ResourceType" } };
 const GROUP_RESOURCE_TYPE = { "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ResourceType"], "id": "Group", "name": "Group", "endpoint": "/scim/v2/Groups", "description": "Group", "schema": "urn:ietf:params:scim:schemas:core:2.0:Group", "meta": { "location": "/scim/v2/ResourceTypes/Group", "resourceType": "ResourceType" } };
 
@@ -148,10 +156,22 @@ async function startServer() {
     // 4. SCIM Router
     const scimAuth = (req, res, next) => {
         const authHeader = req.headers.authorization;
-        if (!authHeader || authHeader !== `Bearer ${SCIM_ACCESS_TOKEN}`) {
-            return res.status(401).json({ detail: "Unauthorized - Invalid Access Token" });
+        if (!authHeader) {
+            return res.status(401).json({ detail: "Unauthorized - Missing Authorization header" });
         }
-        next();
+        if (authHeader === `Bearer ${SCIM_ACCESS_TOKEN}`) {
+            return next();
+        }
+        if (SCIM_BASIC_USER && SCIM_BASIC_PASS && authHeader.startsWith('Basic ')) {
+            const decoded = Buffer.from(authHeader.slice(6), 'base64').toString('utf8');
+            const idx = decoded.indexOf(':');
+            const user = idx >= 0 ? decoded.slice(0, idx) : decoded;
+            const pass = idx >= 0 ? decoded.slice(idx + 1) : '';
+            if (user === SCIM_BASIC_USER && pass === SCIM_BASIC_PASS) {
+                return next();
+            }
+        }
+        return res.status(401).json({ detail: "Unauthorized - Invalid credentials" });
     };
     const scimRouter = express.Router();
     scimRouter.use(scimAuth);
