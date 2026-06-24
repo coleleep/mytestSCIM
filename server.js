@@ -221,7 +221,10 @@ async function startServer() {
             const { rows } = await pool.query(`SELECT scim_data FROM users ORDER BY userName`);
             const users = rows.map(row => row.scim_data);
             res.render('users', { users: users, user: req.userContext.userinfo });
-        } catch (err) { res.status(500).send("Error retrieving users."); }
+        } catch (err) {
+            console.error("Error fetching users for UI:", err);
+            res.status(500).send("Error retrieving users.");
+        }
     });
     app.get('/ui/groups', oidc.ensureAuthenticated(), async (req, res) => {
         try {
