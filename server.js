@@ -219,7 +219,7 @@ async function startServer() {
     app.get('/ui/users', oidc.ensureAuthenticated(), async (req, res) => {
         try {
             const { rows } = await pool.query(`SELECT scim_data FROM users ORDER BY userName`);
-            const users = rows.map(row => row.scim_data).filter(Boolean);
+            const users = rows.map(row => row.scim_data).filter(u => u && u.userName);
             res.render('users', { users: users, user: req.userContext.userinfo });
         } catch (err) {
             console.error("Error fetching users for UI:", err);
