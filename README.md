@@ -87,17 +87,17 @@ Set both `SCIM_BASIC_USER` and `SCIM_BASIC_PASS`. In your IdP, select **Basic Au
 #### 3. OAuth 2.0 Authorization Code
 Set `OAUTH_CLIENT_ID` and `OAUTH_CLIENT_SECRET`. The authorization endpoint is:
 ```
-https://your-app-name.onrender.com/oauth/authorize
+https://your-app-name.onrender.com/authorize
 ```
 The token endpoint is:
 ```
-https://your-app-name.onrender.com/oauth/token
+https://your-app-name.onrender.com/token
 ```
 
 #### 4. Client Credentials
 Same `OAUTH_CLIENT_ID` and `OAUTH_CLIENT_SECRET` as above. Use the token endpoint directly:
 ```
-POST https://your-app-name.onrender.com/oauth/token
+POST https://your-app-name.onrender.com/token
 grant_type=client_credentials&client_id=...&client_secret=...
 ```
 
