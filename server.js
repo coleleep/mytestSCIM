@@ -61,7 +61,7 @@ const ENTERPRISE_USER_SCHEMA = {
         "location": "/scim/v2/Schemas/urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"
     }
 };
-const SCHEMAS = [USER_SCHEMA, GROUP_SCHEMA, ENTERPRISE_USER_SCHEMA];
+const SCHEMAS = [USER_SCHEMA, GROUP_SCHEMA];
 const AUTH_SCHEMES = [
     { "name": "OAuth Bearer Token", "description": "Authentication scheme using the OAuth Bearer Token standard.", "specUri": "http://www.rfc-editor.org/info/rfc6750", "type": "oauthbearertoken", "primary": true }
 ];
