@@ -42,6 +42,7 @@
                     <th>ID</th>
                     <th>Username</th>
                     <th>Full Name</th>
+                    <th style="white-space: nowrap;">Department</th>
                     <th>Email</th>
                     <th>Status</th>
                 </tr>
@@ -53,13 +54,14 @@
                             <td><code class="code"><%= user.id %></code></td>
                             <td><%= user.userName %></td>
                             <td><%= (user.name && user.name.formatted) ? user.name.formatted : (user.name && user.name.givenName ? `${user.name.givenName} ${user.name.familyName || ''}`.trim() : 'N/A') %></td>
+                            <td style="white-space: nowrap;"><%= (user['urn:ietf:params:scim:schemas:extension:enterprise:2.0:User'] && user['urn:ietf:params:scim:schemas:extension:enterprise:2.0:User'].department) ? user['urn:ietf:params:scim:schemas:extension:enterprise:2.0:User'].department : 'N/A' %></td>
                             <td><%= user.emails && user.emails[0] ? user.emails[0].value : 'N/A' %></td>
                             <td><%= user.active ? 'Active' : 'Inactive' %></td>
                         </tr>
                     <% }); %>
                 <% } else { %>
                     <tr>
-                        <td colspan="5" class="no-users">No users found. Try creating one via the API.</td>
+                        <td colspan="6" class="no-users">No users found. Try creating one via the API.</td>
                     </tr>
                 <% } %>
             </tbody>
