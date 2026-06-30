@@ -138,32 +138,65 @@ router.put('/:id', async (req, res) => {
     }
 });
 
-// PATCH /scim/v2/Users/{id}
+// PATCH /scim/v2/Users/:id
 router.patch('/:id', async (req, res) => {
     const userId = req.params.id;
     const { Operations } = req.body;
     if (!Operations) { return res.status(400).json({ detail: "PATCH request must contain 'Operations'" }); }
-    const activeOp = Operations.find(op => {
-        if (op.op.toLowerCase() !== 'replace') return false;
-        // Format 1: { op: "replace", path: "active", value: false }
-        if (op.path === 'active') return true;
-        // Format 2: { op: "replace", value: { active: false } }  (Okta's format)
-        if (!op.path && typeof op.value === 'object' && 'active' in op.value) return true;
-        return false;
-    });
-    if (activeOp) {
-        const newActiveStatus = activeOp.path === 'active' ? activeOp.value : activeOp.value.active;
-        try {
-            const { rows } = await pool.query(`SELECT scim_data FROM users WHERE id = $1`, [userId]);
-            if (rows.length === 0) { return res.status(404).json({ detail: "User not found" }); }
-            const user = rows[0].scim_data;
-            user.active = newActiveStatus;
-            user.meta.lastModified = new Date().toISOString();
-            await pool.query(`UPDATE users SET active = $1, scim_data = $2 WHERE id = $3`, [newActiveStatus, user, userId]);
+
+    try {
+        const { rows } = await pool.query(`SELECT scim_data FROM users WHERE id = $1`, [userId]);
+        if (rows.length === 0) { return res.status(404).json({ detail: "User not found" }); }
+        const user = rows[0].scim_data;
+        let changed = false;
+
+        for (const op of Operations) {
+            if (op.op.toLowerCase() !== 'replace') continue;
+
+            // active: { op: "replace", path: "active", value: false }
+            if (op.path === 'active') {
+                user.active = op.value;
+                user.meta.lastModified = new Date().toISOString();
+                changed = true;
+                continue;
+            }
+
+            // active: { op: "replace", value: { active: false } }  (Okta format)
+            if (!op.path && typeof op.value === 'object' && 'active' in op.value) {
+                user.active = op.value.active;
+                user.meta.lastModified = new Date().toISOString();
+                changed = true;
+                continue;
+            }
+
+            // department path format: "urn:...:department"
+            const deptPath = `${ENTERPRISE_SCHEMA}:department`;
+            if (op.path === deptPath) {
+                if (!user[ENTERPRISE_SCHEMA]) user[ENTERPRISE_SCHEMA] = {};
+                user[ENTERPRISE_SCHEMA].department = op.value;
+                if (!user.schemas.includes(ENTERPRISE_SCHEMA)) user.schemas.push(ENTERPRISE_SCHEMA);
+                user.meta.lastModified = new Date().toISOString();
+                changed = true;
+                continue;
+            }
+
+            // department value object format: { op: "replace", value: { "urn:...": { "department": "Sales" } } }
+            if (!op.path && typeof op.value === 'object' && op.value[ENTERPRISE_SCHEMA]) {
+                if (!user[ENTERPRISE_SCHEMA]) user[ENTERPRISE_SCHEMA] = {};
+                Object.assign(user[ENTERPRISE_SCHEMA], op.value[ENTERPRISE_SCHEMA]);
+                if (!user.schemas.includes(ENTERPRISE_SCHEMA)) user.schemas.push(ENTERPRISE_SCHEMA);
+                user.meta.lastModified = new Date().toISOString();
+                changed = true;
+                continue;
+            }
+        }
+
+        if (changed) {
+            await pool.query(`UPDATE users SET active = $1, scim_data = $2 WHERE id = $3`, [user.active, user, userId]);
             return res.status(200).json(user);
-        } catch (err) { return res.status(500).json({ detail: "Database error" }); }
-    }
-    res.status(204).send();
+        }
+        res.status(204).send();
+    } catch (err) { return res.status(500).json({ detail: "Database error" }); }
 });
 
 // DELETE /scim/v2/Users/{id}
