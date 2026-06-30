@@ -151,7 +151,7 @@ router.patch('/:id', async (req, res) => {
         let changed = false;
 
         for (const op of Operations) {
-            if (op.op.toLowerCase() !== 'replace') continue;
+            if (!op.op || op.op.toLowerCase() !== 'replace') continue;
 
             // active: { op: "replace", path: "active", value: false }
             if (op.path === 'active') {
