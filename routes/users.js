@@ -111,7 +111,7 @@ router.put('/:id', async (req, res) => {
     } catch (err) { return res.status(500).json({ detail: "Database query error on fetch" }); }
 
     const enterpriseExt = scimUser[ENTERPRISE_SCHEMA];
-    const schemas = scimUser.schemas || ["urn:ietf:params:scim:schemas:core:2.0:User"];
+    const schemas = [...(scimUser.schemas || ["urn:ietf:params:scim:schemas:core:2.0:User"])];
     if (enterpriseExt && !schemas.includes(ENTERPRISE_SCHEMA)) schemas.push(ENTERPRISE_SCHEMA);
     if (!enterpriseExt) {
         const idx = schemas.indexOf(ENTERPRISE_SCHEMA);
