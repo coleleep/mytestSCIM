@@ -99,7 +99,7 @@ router.post('/', async (req, res) => {
     }
 });
 
-// PUT /scim/v2/Users/{id}
+// PUT /scim/v2/Users/:id
 router.put('/:id', async (req, res) => {
     const userId = req.params.id;
     const scimUser = req.body;
@@ -109,7 +109,26 @@ router.put('/:id', async (req, res) => {
         if (rows.length === 0) { return res.status(404).json({ detail: "User not found" }); }
         existingUser = rows[0].scim_data;
     } catch (err) { return res.status(500).json({ detail: "Database query error on fetch" }); }
-    const updatedUser = { id: userId, schemas: scimUser.schemas || existingUser.schemas, userName: scimUser.userName, name: scimUser.name || {}, emails: scimUser.emails || [], active: scimUser.active !== undefined ? scimUser.active : true, meta: { ...existingUser.meta, lastModified: new Date().toISOString(), location: `/scim/v2/Users/${userId}` } };
+
+    const enterpriseExt = scimUser[ENTERPRISE_SCHEMA];
+    const schemas = scimUser.schemas || ["urn:ietf:params:scim:schemas:core:2.0:User"];
+    if (enterpriseExt && !schemas.includes(ENTERPRISE_SCHEMA)) schemas.push(ENTERPRISE_SCHEMA);
+    if (!enterpriseExt) {
+        const idx = schemas.indexOf(ENTERPRISE_SCHEMA);
+        if (idx > -1) schemas.splice(idx, 1);
+    }
+
+    const updatedUser = {
+        id: userId,
+        schemas,
+        userName: scimUser.userName,
+        name: scimUser.name || {},
+        emails: scimUser.emails || [],
+        active: scimUser.active !== undefined ? scimUser.active : true,
+        meta: { ...existingUser.meta, lastModified: new Date().toISOString(), location: `/scim/v2/Users/${userId}` }
+    };
+    if (enterpriseExt) updatedUser[ENTERPRISE_SCHEMA] = enterpriseExt;
+
     try {
         await pool.query(`UPDATE users SET userName = $1, active = $2, scim_data = $3 WHERE id = $4`, [updatedUser.userName, updatedUser.active, updatedUser, userId]);
         res.status(200).json(updatedUser);
