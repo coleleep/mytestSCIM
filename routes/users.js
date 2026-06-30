@@ -11,6 +11,8 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
+const ENTERPRISE_SCHEMA = 'urn:ietf:params:scim:schemas:extension:enterprise:2.0:User';
+
 // GET /scim/v2/Users - with Pagination and Filtering
 router.get('/', async (req, res) => {
     try {
@@ -64,10 +66,30 @@ router.get('/:id', async (req, res) => {
 
 // POST /scim/v2/Users
 router.post('/', async (req, res) => {
-    const scimUser = req.body; 
+    const scimUser = req.body;
     if (!scimUser || !scimUser.userName) { return res.status(400).json({ detail: 'userName is required' }); }
     const userId = uuidv4();
-    const newUser = { id: userId, schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"], userName: scimUser.userName, name: scimUser.name || {}, emails: scimUser.emails || [], active: scimUser.active !== undefined ? scimUser.active : true, meta: { resourceType: "User", created: new Date().toISOString(), lastModified: new Date().toISOString(), location: `/scim/v2/Users/${userId}` } };
+
+    const enterpriseExt = scimUser[ENTERPRISE_SCHEMA];
+    const schemas = ["urn:ietf:params:scim:schemas:core:2.0:User"];
+    if (enterpriseExt) schemas.push(ENTERPRISE_SCHEMA);
+
+    const newUser = {
+        id: userId,
+        schemas,
+        userName: scimUser.userName,
+        name: scimUser.name || {},
+        emails: scimUser.emails || [],
+        active: scimUser.active !== undefined ? scimUser.active : true,
+        meta: {
+            resourceType: "User",
+            created: new Date().toISOString(),
+            lastModified: new Date().toISOString(),
+            location: `/scim/v2/Users/${userId}`
+        }
+    };
+    if (enterpriseExt) newUser[ENTERPRISE_SCHEMA] = enterpriseExt;
+
     try {
         await pool.query(`INSERT INTO users (id, userName, active, scim_data) VALUES ($1, $2, $3, $4)`, [newUser.id, newUser.userName, newUser.active, newUser]);
         res.status(201).json(newUser);
