@@ -61,7 +61,27 @@ const ENTERPRISE_USER_SCHEMA = {
         "location": "/scim/v2/Schemas/urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"
     }
 };
-const SCHEMAS = [USER_SCHEMA, GROUP_SCHEMA];
+const CUSTOM_EXTENSION_SCHEMA = {
+    "id": "urn:ietf:params:scim:schemas:extension:custom:2.0:User",
+    "name": "CustomUser",
+    "description": "Custom User Extension",
+    "attributes": [
+        {
+            "name": "customExt",
+            "type": "string",
+            "multiValued": false,
+            "description": "Custom extension attribute.",
+            "required": false,
+            "mutability": "readWrite",
+            "returned": "default"
+        }
+    ],
+    "meta": {
+        "resourceType": "Schema",
+        "location": "/scim/v2/Schemas/urn:ietf:params:scim:schemas:extension:custom:2.0:User"
+    }
+};
+const SCHEMAS = [USER_SCHEMA, GROUP_SCHEMA, CUSTOM_EXTENSION_SCHEMA];
 const AUTH_SCHEMES = [
     { "name": "OAuth Bearer Token", "description": "Authentication scheme using the OAuth Bearer Token standard.", "specUri": "http://www.rfc-editor.org/info/rfc6750", "type": "oauthbearertoken", "primary": true }
 ];
