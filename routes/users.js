@@ -12,6 +12,7 @@ const pool = new Pool({
 });
 
 const ENTERPRISE_SCHEMA = 'urn:ietf:params:scim:schemas:extension:enterprise:2.0:User';
+const CUSTOM_SCHEMA = 'urn:ietf:params:scim:schemas:extension:custom:2.0:User';
 
 // GET /scim/v2/Users - with Pagination and Filtering
 router.get('/', async (req, res) => {
@@ -71,8 +72,10 @@ router.post('/', async (req, res) => {
     const userId = uuidv4();
 
     const enterpriseExt = scimUser[ENTERPRISE_SCHEMA];
+    const customExt = scimUser[CUSTOM_SCHEMA];
     const schemas = ["urn:ietf:params:scim:schemas:core:2.0:User"];
     if (enterpriseExt) schemas.push(ENTERPRISE_SCHEMA);
+    if (customExt) schemas.push(CUSTOM_SCHEMA);
 
     const newUser = {
         id: userId,
@@ -89,6 +92,7 @@ router.post('/', async (req, res) => {
         }
     };
     if (enterpriseExt) newUser[ENTERPRISE_SCHEMA] = enterpriseExt;
+    if (customExt) newUser[CUSTOM_SCHEMA] = customExt;
 
     try {
         await pool.query(`INSERT INTO users (id, userName, active, scim_data) VALUES ($1, $2, $3, $4)`, [newUser.id, newUser.userName, newUser.active, newUser]);
@@ -111,10 +115,16 @@ router.put('/:id', async (req, res) => {
     } catch (err) { return res.status(500).json({ detail: "Database query error on fetch" }); }
 
     const enterpriseExt = scimUser[ENTERPRISE_SCHEMA];
+    const customExt = scimUser[CUSTOM_SCHEMA];
     const schemas = [...(scimUser.schemas || ["urn:ietf:params:scim:schemas:core:2.0:User"])];
     if (enterpriseExt && !schemas.includes(ENTERPRISE_SCHEMA)) schemas.push(ENTERPRISE_SCHEMA);
     if (!enterpriseExt) {
         const idx = schemas.indexOf(ENTERPRISE_SCHEMA);
+        if (idx > -1) schemas.splice(idx, 1);
+    }
+    if (customExt && !schemas.includes(CUSTOM_SCHEMA)) schemas.push(CUSTOM_SCHEMA);
+    if (!customExt) {
+        const idx = schemas.indexOf(CUSTOM_SCHEMA);
         if (idx > -1) schemas.splice(idx, 1);
     }
 
@@ -128,6 +138,7 @@ router.put('/:id', async (req, res) => {
         meta: { ...existingUser.meta, lastModified: new Date().toISOString(), location: `/scim/v2/Users/${userId}` }
     };
     if (enterpriseExt) updatedUser[ENTERPRISE_SCHEMA] = enterpriseExt;
+    if (customExt) updatedUser[CUSTOM_SCHEMA] = customExt;
 
     try {
         await pool.query(`UPDATE users SET userName = $1, active = $2, scim_data = $3 WHERE id = $4`, [updatedUser.userName, updatedUser.active, updatedUser, userId]);
