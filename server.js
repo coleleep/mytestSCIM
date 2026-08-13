@@ -177,7 +177,7 @@ async function startServer() {
             if (client_id !== OAUTH_CLIENT_ID || client_secret !== OAUTH_CLIENT_SECRET) {
                 return res.status(401).json({ error: 'invalid_client' });
             }
-            return res.status(200).json({ access_token: SCIM_ACCESS_TOKEN, token_type: 'Bearer', expires_in: 3600 });
+            return res.status(200).json({ access_token: SCIM_ACCESS_TOKEN, token_type: 'Bearer', expires_in: 7776000 });
         }
 
         if (grant_type === 'authorization_code') {
@@ -187,7 +187,7 @@ async function startServer() {
             const storedCode = authCodes.get(code);
             if (!storedCode || storedCode.expires < Date.now() || storedCode.clientId !== client_id) { return res.status(400).json({ error: 'invalid_grant' }); }
             authCodes.delete(code);
-            return res.status(200).json({ access_token: SCIM_ACCESS_TOKEN, token_type: 'Bearer', expires_in: 3600 });
+            return res.status(200).json({ access_token: SCIM_ACCESS_TOKEN, token_type: 'Bearer', expires_in: 7776000 });
         }
 
         return res.status(400).json({ error: 'unsupported_grant_type' });
