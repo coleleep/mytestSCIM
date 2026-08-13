@@ -200,6 +200,27 @@ router.patch('/:id', async (req, res) => {
                 changed = true;
                 continue;
             }
+
+            // customExt path format: "urn:...:customExt"
+            const customExtPath = `${CUSTOM_SCHEMA}:customExt`;
+            if (op.path === customExtPath) {
+                if (!user[CUSTOM_SCHEMA]) user[CUSTOM_SCHEMA] = {};
+                user[CUSTOM_SCHEMA].customExt = op.value;
+                if (!user.schemas.includes(CUSTOM_SCHEMA)) user.schemas.push(CUSTOM_SCHEMA);
+                user.meta.lastModified = new Date().toISOString();
+                changed = true;
+                continue;
+            }
+
+            // customExt value object format: { op: "replace", value: { "urn:...": { "customExt": "foo" } } }
+            if (!op.path && typeof op.value === 'object' && op.value[CUSTOM_SCHEMA]) {
+                if (!user[CUSTOM_SCHEMA]) user[CUSTOM_SCHEMA] = {};
+                Object.assign(user[CUSTOM_SCHEMA], op.value[CUSTOM_SCHEMA]);
+                if (!user.schemas.includes(CUSTOM_SCHEMA)) user.schemas.push(CUSTOM_SCHEMA);
+                user.meta.lastModified = new Date().toISOString();
+                changed = true;
+                continue;
+            }
         }
 
         if (changed) {
