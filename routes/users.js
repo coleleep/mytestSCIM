@@ -13,6 +13,9 @@ const pool = new Pool({
 
 const ENTERPRISE_SCHEMA = 'urn:ietf:params:scim:schemas:extension:enterprise:2.0:User';
 const CUSTOM_SCHEMA = 'urn:ietf:params:scim:schemas:extension:custom:2.0:User';
+// TEMP TEST: external namespace for Okta schema testing (see server.js SIMPPLR_TEST_SCHEMA)
+const SIMPPLR_SCHEMA = 'urn:ietf:params:scim:schemas:extension:simpplrapp:8a5665e9-9fa4-42d0-b764-486f393690e4:User';
+const SIMPPLR_ATTR = '90ed92b6-f4dd-4e74-8e53-7c1b998c128b';
 
 // GET /scim/v2/Users - with Pagination and Filtering
 router.get('/', async (req, res) => {
@@ -76,6 +79,8 @@ router.post('/', async (req, res) => {
     const schemas = ["urn:ietf:params:scim:schemas:core:2.0:User"];
     if (enterpriseExt) schemas.push(ENTERPRISE_SCHEMA);
     if (customExt) schemas.push(CUSTOM_SCHEMA);
+    const simpplrExt = scimUser[SIMPPLR_SCHEMA]; // TEMP TEST
+    if (simpplrExt) schemas.push(SIMPPLR_SCHEMA);
 
     const newUser = {
         id: userId,
@@ -93,6 +98,7 @@ router.post('/', async (req, res) => {
     };
     if (enterpriseExt) newUser[ENTERPRISE_SCHEMA] = enterpriseExt;
     if (customExt) newUser[CUSTOM_SCHEMA] = customExt;
+    if (simpplrExt) newUser[SIMPPLR_SCHEMA] = simpplrExt; // TEMP TEST
 
     try {
         await pool.query(`INSERT INTO users (id, userName, active, scim_data) VALUES ($1, $2, $3, $4)`, [newUser.id, newUser.userName, newUser.active, newUser]);
@@ -127,6 +133,13 @@ router.put('/:id', async (req, res) => {
         const idx = schemas.indexOf(CUSTOM_SCHEMA);
         if (idx > -1) schemas.splice(idx, 1);
     }
+    // TEMP TEST: simpplr extension
+    const simpplrExt = scimUser[SIMPPLR_SCHEMA];
+    if (simpplrExt && !schemas.includes(SIMPPLR_SCHEMA)) schemas.push(SIMPPLR_SCHEMA);
+    if (!simpplrExt) {
+        const idx = schemas.indexOf(SIMPPLR_SCHEMA);
+        if (idx > -1) schemas.splice(idx, 1);
+    }
 
     const updatedUser = {
         id: userId,
@@ -139,6 +152,7 @@ router.put('/:id', async (req, res) => {
     };
     if (enterpriseExt) updatedUser[ENTERPRISE_SCHEMA] = enterpriseExt;
     if (customExt) updatedUser[CUSTOM_SCHEMA] = customExt;
+    if (simpplrExt) updatedUser[SIMPPLR_SCHEMA] = simpplrExt; // TEMP TEST
 
     try {
         await pool.query(`UPDATE users SET userName = $1, active = $2, scim_data = $3 WHERE id = $4`, [updatedUser.userName, updatedUser.active, updatedUser, userId]);
@@ -217,6 +231,26 @@ router.patch('/:id', async (req, res) => {
                 if (!user[CUSTOM_SCHEMA]) user[CUSTOM_SCHEMA] = {};
                 Object.assign(user[CUSTOM_SCHEMA], op.value[CUSTOM_SCHEMA]);
                 if (!user.schemas.includes(CUSTOM_SCHEMA)) user.schemas.push(CUSTOM_SCHEMA);
+                user.meta.lastModified = new Date().toISOString();
+                changed = true;
+                continue;
+            }
+
+            // TEMP TEST: simpplr attribute path format: "urn:...:simpplrapp:<id>:User:<attr>"
+            if (op.path === `${SIMPPLR_SCHEMA}:${SIMPPLR_ATTR}`) {
+                if (!user[SIMPPLR_SCHEMA]) user[SIMPPLR_SCHEMA] = {};
+                user[SIMPPLR_SCHEMA][SIMPPLR_ATTR] = op.value;
+                if (!user.schemas.includes(SIMPPLR_SCHEMA)) user.schemas.push(SIMPPLR_SCHEMA);
+                user.meta.lastModified = new Date().toISOString();
+                changed = true;
+                continue;
+            }
+
+            // TEMP TEST: simpplr value object format
+            if (!op.path && typeof op.value === 'object' && op.value[SIMPPLR_SCHEMA]) {
+                if (!user[SIMPPLR_SCHEMA]) user[SIMPPLR_SCHEMA] = {};
+                Object.assign(user[SIMPPLR_SCHEMA], op.value[SIMPPLR_SCHEMA]);
+                if (!user.schemas.includes(SIMPPLR_SCHEMA)) user.schemas.push(SIMPPLR_SCHEMA);
                 user.meta.lastModified = new Date().toISOString();
                 changed = true;
                 continue;

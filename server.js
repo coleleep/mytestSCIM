@@ -81,7 +81,28 @@ const CUSTOM_EXTENSION_SCHEMA = {
         "location": "/scim/v2/Schemas/urn:ietf:params:scim:schemas:extension:custom:2.0:User"
     }
 };
-const SCHEMAS = [USER_SCHEMA, GROUP_SCHEMA, CUSTOM_EXTENSION_SCHEMA];
+// TEMP TEST: external namespace for Okta schema testing. Roll back by deleting this block and SIMPPLR_TEST_SCHEMA in SCHEMAS.
+const SIMPPLR_TEST_SCHEMA = {
+    "id": "urn:ietf:params:scim:schemas:extension:simpplrapp:8a5665e9-9fa4-42d0-b764-486f393690e4:User",
+    "name": "SimpplrUser",
+    "description": "Simpplr User Extension (temporary test)",
+    "attributes": [
+        {
+            "name": "90ed92b6-f4dd-4e74-8e53-7c1b998c128b",
+            "type": "string",
+            "multiValued": false,
+            "description": "job_type",
+            "required": false,
+            "mutability": "readWrite",
+            "returned": "default"
+        }
+    ],
+    "meta": {
+        "resourceType": "Schema",
+        "location": "/scim/v2/Schemas/urn:ietf:params:scim:schemas:extension:simpplrapp:8a5665e9-9fa4-42d0-b764-486f393690e4:User"
+    }
+};
+const SCHEMAS = [USER_SCHEMA, GROUP_SCHEMA, CUSTOM_EXTENSION_SCHEMA, SIMPPLR_TEST_SCHEMA];
 const AUTH_SCHEMES = [
     { "name": "OAuth Bearer Token", "description": "Authentication scheme using the OAuth Bearer Token standard.", "specUri": "http://www.rfc-editor.org/info/rfc6750", "type": "oauthbearertoken", "primary": true }
 ];
